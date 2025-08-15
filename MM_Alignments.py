@@ -33,10 +33,10 @@ args = parser.parse_args()
     #ALIAS_MotifMatches_presence.txt
 
 
-#strains = ['TGGT1',  'TGMAS', 'TGVAND',  'TGVEG', 'TGRUB' ] ##this gets substituded by just checking the sequence ID starts with TG
-
-species = ['PF' , 'CS' ,  'KE' ,'NC', 'SN' ] #Sequence IDs do not match gene IDs
-#species = ['BESB' , 'CSUI' ,  'HHA' ,'NCLIV', 'SN3' ] 
+species = ['PF', 'CS',  'KE', 'NC', 'SN' ] # ID handles for ToxoDB species included in the alignments
+# Sequence IDs do not match gene IDs; ideally, they would be: 
+# species = ['BESB' , 'CSUI' ,  'HHA' ,'NCLIV', 'SN3' ] 
+# Besnoitia: PF-BESB, Citoisospora suis: CS-CSUI,  Hammondia hammondi: KE-HHA, Neospora caninum: NC-NCLIV, Sarcosystis neurona: SN-SN3
 
 out_dir = os.getcwd()
 
@@ -46,8 +46,6 @@ Load ELM models
 '''
 
 ELMs = args.input_ELMs #Table with target ELM models
-#ELMs = '/Users/JAVlvrd/Documents/Toxoplasma-2024/ToxoMotifs3/Data/elm_classes_Dec2023.tsv'
-ELMs = '/Users/jesusav/Documents/Cats/Article/Data/2025/elm_classes_April25.tsv'
 ELM_table = open(ELMs, 'r') #open up file
 del ELMs
 
@@ -61,7 +59,7 @@ for line in ELM_table:
 
     ELM_models[Name]=[REGEX, Group]
     del row
-del ELM_table,line, Name, Group, REGEX #delete used variables
+del ELM_table, line, Name, Group, REGEX #delete used variables
 
 ELM_keys = list(ELM_models.keys()) #Get ELM dict keys
 
@@ -70,11 +68,9 @@ ELM_keys = list(ELM_models.keys()) #Get ELM dict keys
 Load motif matches info
 
 '''
-MotifMatches_sites = args.input_sites
-#MotifMatches_sites = '/Users/JAVlvrd/Documents/Toxoplasma-2024/ToxoMotifs3/Data/ELM_Feb24_MotifMatches_sites.txt'
-MotifMatches_sites = '/Users/jesusav/Desktop/July2025_MotifMatches_sites.txt'
+MotifMatches_sites = args.input_sites # List of motif sites per protein per motif
 MotifMatches_sites_table = pd.read_table(MotifMatches_sites)
-MotifMatches_sites_list = MotifMatches_sites_table.transpose().to_dict('list') #put the datafram in dictionary (of lists) format
+MotifMatches_sites_list = MotifMatches_sites_table.transpose().to_dict('list') #put the dataframe in dictionary (of lists) format
 del MotifMatches_sites_table
 
 for key in  list(MotifMatches_sites_list.keys()):
@@ -94,7 +90,6 @@ for group in  list(MotifMatches_sites_list.keys()):
     
     ID = MotifMatches_sites_list[group][0] #TGME49_254720-t26_1-p1
     ID = ID[0:13]
-    #ID = re.sub("-t26_1-p1", "", ID)
     motif = MotifMatches_sites_list[group][1]
 
 
@@ -148,9 +143,6 @@ for group in  list(MotifMatches_sites_list.keys()):
         slim_index = re.finditer(slim_model, subject_seq.replace("-",""))
         
         for m in slim_index:
-            #print(m)
-            #motif_i = m.group(1) #save the  instance
-            #motif_l = len(motif_i) #get the length
             motif_s = subject_ref.index(m.start()) #get the start index
             slim_indexes.append(motif_s)
             del motif_s #,motif_i,motif_l
@@ -168,14 +160,15 @@ del group, motif, aln_name, aln_txt,subject_keys, info_subjects, aln_group
 del m, ID
 
 '''
-Evaluate presence of motifs in alignments
+Evaluate the presence of motifs in alignments
 '''
 
 DisOrgComp_cons = {}
-motif_window = 15
+# Window threshold to find a motif around the reference one
+motif_window = 15 
 
 for group in  list(MotifMatches_sites_list.keys()):
-    ID = MotifMatches_sites_list[group][0] #TGME49_254720-t26_1-p1
+    ID = MotifMatches_sites_list[group][0] 
     ID = ID[0:13]
     #ID = re.sub("-t26_1-p1", "", ID)
     motif = MotifMatches_sites_list[group][1]
@@ -186,7 +179,7 @@ for group in  list(MotifMatches_sites_list.keys()):
     true_motifs = MotifMatches_sites_list[group][3] #motifs from 
 
     try:
-        all_motifs = Aln_groups[key][MotifMatches_sites_list[group][0]+'.ref'] #when there's no matches of a motif in a certain alignment e.g
+        all_motifs = Aln_groups[key][MotifMatches_sites_list[group][0]+'.ref'] #when there are no matches of a motif in a certain alignment, e.g
     except:
         continue
     
@@ -256,21 +249,14 @@ for group in  list(MotifMatches_sites_list.keys()):
 del true_motifs, all_motifs, true_index,guide_index,group
 del ID, motif, key
 
-
-#species_t = motif_sp_n / species_n
-#species_r = motif_sp_n / species_n
-
-
 '''
-Save presences scores in a text file
+Save presence scores in a text file
 '''
-
 print('Writing output file')
 
 os.chdir(out_dir) #choose directory to save table
 out_name = re.sub("_sites.txt", "", MotifMatches_sites)
 out_file = open(out_name+"_presence.txt", "w") #name of the table
-#out_file = open("ELM_Feb24_presence.txt", "w")
 out_file.write('key\t seq_id\t motif\t motif_n\t motif_site\tpresence_org\t presence_str\t presence_spc\n')#header
 for key in list(DisOrgComp_cons.keys()):
     info = key.split('|')
