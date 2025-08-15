@@ -25,9 +25,9 @@ parser.add_argument("input_sites",
 args = parser.parse_args()
 
 
-#python MotifsInAlignments.py input_ELMs input_sites
+#python MM_InAlignments.py input_ELMs input_sites
 #sample command
-    #python ../Software/MotifMatches_InAlignments.py elm_classes_Dec2023.tsv ELM_Feb24_MotifMatches_sites.txt 
+    #python ../Software/MM_InAlignments.py elm_classes_Dec2023.tsv ELM_Feb24_MotifMatches_sites.txt 
 
 #outputs:
     #ALIAS_MotifMatches_presence.txt
