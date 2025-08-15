@@ -82,7 +82,7 @@ del key
 Read Alignments and get motif matches positions
 '''
 
-os.chdir('/Users/jesusav/Documents/Cats/Article/Data/Alignments')
+os.chdir('../Data/Alignments')
 
 Aln_groups={}
 
