@@ -22,7 +22,6 @@ import sys
 
 import re
 import iupred3_lib
-# export PYTHONPATH="${PYTHONPATH}:/Users/jesusav/Documents/Software/iupred3/"  
 
 '''
 INPUTS
@@ -30,14 +29,10 @@ PATHS OF FILES and DISORDER THRS
 '''
 
 parser=argparse.ArgumentParser()
-parser.add_argument("data_alias",
-                    help="Name alias for result files") #receive proteome path
-parser.add_argument("input_proteome",
-                    help="Path to a proteome file") #receive proteome path
-parser.add_argument("input_ELMs",
-                    help="Path to a motif table file with names and REGEX") #receive file with ELM regular expressions
-parser.add_argument("input_IUP_thrs", 
-                    help="IUPRED pLDDT threshold", nargs='?', type=float, const=0.4) #receive disorder threshold
+parser.add_argument("data_alias",  help="Name alias for result files") #receive proteome path
+parser.add_argument("input_proteome",  help="Path to a proteome file") #receive proteome path
+parser.add_argument("input_ELMs",  help="Path to a motif table file with names and REGEX") #receive file with ELM regular expressions
+parser.add_argument("input_IUP_thrs",  help="IUPRED pLDDT threshold", nargs='?', type=float, const=0.4) #receive disorder threshold
 args = parser.parse_args()
 
 #sample command
@@ -49,13 +44,11 @@ args = parser.parse_args()
 '''
 Make a list of all proteins in the proteome
 IDs are the dictionary keys
-Information store include gene name, seq length and sequence
+The information store includes gene name, sequence length and sequence
 '''
 print("Reading proteome...")
 
-Proteome = args.input_proteome #Proteome to analyse, from the fasta file provided by user
-#Proteome = '/Users/JAVlvrd/Documents/Toxoplasma-2024/ToxoMotifs3/Data/ToxoDB-42_TgondiiME49_AnnotatedProteins.fasta'
-#Proteome = '/Users/JAVlvrd/Documents/Toxoplasma-2023/Motif_Enrichments/ToxoDB-42_TgondiiME49_AnnotatedProteins.fasta'
+Proteome = args.input_proteome #Proteome to analyse, from the fasta file provided by the user
 proteome_file = open(Proteome, 'r') #open up file
 info_proteins = {}
 
@@ -71,11 +64,11 @@ for line in proteome_file:
         gene = gene.replace(' gene=','').replace(' ','') #take away extra characters and spaces
 
         info_proteins[ID]=[gene, 0,''] #crate an entry in the info_proteins dic. using ID as key and storing gene name, aa length and empty sequence
-        #adding an empty string to store amino acid sequence by extension
+        #adding an empty string to store the amino acid sequence by extension
         del gene#, length #delete used variables not ID/key to keep track of which protein we are adding the seq_piece later
 
-    else: #if the line is not a header then add it to the previous entry seq string
-        seq_piece = line.strip() #take away extra formating from the line with aa's
+    else: #if the line is not a header, then add it to the previous entry seq string
+        seq_piece = line.strip() #take away extra formatting from the line with aa's
         info_proteins[ID][2] = info_proteins[ID][2] + seq_piece #add currrent line to extend the protein sequence
         del seq_piece #delete
     info_proteins[ID][1]=len(info_proteins[ID][2])
@@ -91,7 +84,6 @@ Upload ELM models
 print("Loading ELM models...")
 
 ELMs = args.input_ELMs #Table with target ELM models
-#ELMs = '/Users/JAVlvrd/Documents/Toxoplasma-2024/ToxoMotifs3/Data/elm_classes_Dec2023.tsv'
 ELM_table = open(ELMs, 'r') #open up file
 ELM_models = {}
 
@@ -111,15 +103,10 @@ ELM_keys = list(ELM_models.keys()) #Get ELM dict keys
 
 
 '''
-Calculate Disorder of each aa position in the proteins provided
+Calculate the Disorder of each aa position in the proteins provided
 '''
 print("Calculating protein disorder...")
-
-# sys.path.insert(1, '/Users/JAVlvrd/Documents/Toxoplasma-2019/Toxo_Proteomes')
-# from iupred2a_folder.iupred2a import *
-
-proteins_dis={} #create list that will contain all vectores with disorder values
-
+proteins_dis={} #create a list that will contain all vectors with disorder values
 
 ProteinList={}
 
@@ -127,9 +114,9 @@ for ID in keys:
     aa_seq = info_proteins[ID][2]  #save the aa sequence in a string variable
     aa_dis = iupred3_lib.iupred(aa_seq, 'long', 'medium')
     aa_dis = np.array(aa_dis[0]) #calculate the disorder score (LONG default) for each aa in the sequence and save them in a list
-    prot_dis = np.mean(aa_dis) #calculate the mean disorder of each protein and save it in a interger variable
+    prot_dis = np.mean(aa_dis) #calculate the mean disorder of each protein and save it in an integer variable
 
-    proteins_dis[ID]=aa_dis #save disorder score list in a dicctionary for later access
+    proteins_dis[ID]=aa_dis #save disorder score list in a dictionary for later access
     ProteinList[ID]=prot_dis  #save average disorder in the general protein seq dictionary
 
     del aa_seq, aa_dis, prot_dis #delete variables after storing them
@@ -143,13 +130,12 @@ print("Finding motif matches...")
 
 proteins_motifs={} #create an empty dict to save motif matches
 
-match_id=0 #ID in case there a proteins with matches with more than one motif
+match_id=0 #ID in case there are proteins with matches with more than one motif
 for motif_n in ELM_keys:#for each ELM motif
     for ID in keys: #for every protein in the SP_ProteinList dict
         motif_m = 0 #counter to know the number of matches
-        #print(ELM_models[motif_n][0])
+        
         for m in re.finditer(ELM_models[motif_n][0], info_proteins[ID][2]):
-            #print(motif_n)
             try:
                 motif_i = m.group(1) #save the  instance
             except:
@@ -165,10 +151,7 @@ for motif_n in ELM_keys:#for each ELM motif
             else:
                 motif_c = "order"
             
-            ###There might be some mismatch with the indexes and the real start
-
-            proteins_motifs[match_id] = [ID,motif_n, motif_m+1, motif_i ,motif_s,motif_d, motif_c] #save motif info: protein ID, name, match number, instance, start, average disorder
-            #print(proteins_motifs[match_id])
+            proteins_motifs[match_id] = [ID,motif_n, motif_m+1, motif_i, motif_s,motif_d, motif_c] #save motif info: protein ID, name, match number, instance, start, average disorder
             match_id += 1 #change the ID for next match
             del motif_i, motif_l, motif_s, motif_d, motif_c #delete variable after storing their value
             motif_m += 1
