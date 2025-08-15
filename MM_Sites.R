@@ -6,12 +6,9 @@ if (length(args)==0) {
 } 
 
 ###Libraries
-
 library(tidyverse)
 library(gridExtra)
 
-#Define working directory
-#setwd("/Users/JAVlvrd/Documents/Toxoplasma-2024/ToxoMotifs3/Data/")
 
 #Read MotifMatches_Dis.py results table
 #input <- 'MotifMatches_list.txt'
@@ -20,14 +17,14 @@ results_table <- gsub('_list.txt','',input1)
 dat <- read.table(input1, header=T,sep="\t")
 
 #Create a list of the motif matches sites to retrieve alignment presence 
-dat_sites <- dat[,c(1:3,5)]
-dat_sites$Motif_sSite<-as.character(dat_sites$Motif_sSite)
-dat_sites<- dat_sites %>% 
-  group_by(Protein_ID,Motif_Name)  %>% 
-  mutate(Motif_sites = paste(Motif_sSite, collapse = ","))
-dat_sites<-select(dat_sites,-4)
-dat_sites$Match_N<-1
-dat_sites<-dat_sites[!duplicated(dat_sites),]
+dat_sites <- dat[,c(1:3,5)] # Get minimal information
+dat_sites$Motif_sSite<-as.character(dat_sites$Motif_sSite) #Treat motif starting positions as characters
+dat_sites <- dat_sites %>% 
+  group_by(Protein_ID,Motif_Name)  %>%  # group protein motifs 
+  mutate(Motif_sites = paste(Motif_sSite, collapse = ",")) # Join all starting sites
+dat_sites <- select(dat_sites,-4)
+dat_sites$Match_N <- 1
+dat_sites <- dat_sites[!duplicated(dat_sites),]
 dat_sites$Match_N <- as.vector(sapply(dat_sites$Motif_sites, function(x) str_count(as.character(x),",")) + 1 )
 
 write_tsv(dat_sites, file=paste(results_table,'_sites.txt',sep = ""),col_names = T)
