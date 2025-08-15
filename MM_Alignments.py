@@ -1,0 +1,279 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+@author: JAVlvrd
+
+Toxo Proteome and a list of motifs and motif hit sites
+
+It will give as output a table with the conservation presence scores for each motif
+"""
+
+import argparse
+import os
+import pandas as pd
+import re
+
+'''
+PATH OF PROTEOME
+'''
+
+parser=argparse.ArgumentParser()
+parser.add_argument("input_ELMs",
+                    help="path to a motif table file with names and REGEX") #receive file of signalP results
+parser.add_argument("input_sites",
+                    help="path to a motif match site table file with protein IDs and Motif sites") #receive file of signalP results
+args = parser.parse_args()
+
+
+#python MotifsInAlignments.py input_ELMs input_sites
+#sample command
+    #python ../Software/MotifMatches_InAlignments.py elm_classes_Dec2023.tsv ELM_Feb24_MotifMatches_sites.txt 
+
+#outputs:
+    #ALIAS_MotifMatches_presence.txt
+
+
+#strains = ['TGGT1',  'TGMAS', 'TGVAND',  'TGVEG', 'TGRUB' ] ##this gets substituded by just checking the sequence ID starts with TG
+
+species = ['PF' , 'CS' ,  'KE' ,'NC', 'SN' ] #Sequence IDs do not match gene IDs
+#species = ['BESB' , 'CSUI' ,  'HHA' ,'NCLIV', 'SN3' ] 
+
+out_dir = os.getcwd()
+
+'''
+Load ELM models
+
+'''
+
+ELMs = args.input_ELMs #Table with target ELM models
+#ELMs = '/Users/JAVlvrd/Documents/Toxoplasma-2024/ToxoMotifs3/Data/elm_classes_Dec2023.tsv'
+ELMs = '/Users/jesusav/Documents/Cats/Article/Data/2025/elm_classes_April25.tsv'
+ELM_table = open(ELMs, 'r') #open up file
+del ELMs
+
+ELM_models = {}
+
+for line in ELM_table:
+    row = line.strip().split() #Separate the name and the regular expression
+    Name = row[0] #select the Name of the ELM
+    REGEX = row[1] #select the REGEX of the ELM
+    Group = row[2] #select the slim group
+
+    ELM_models[Name]=[REGEX, Group]
+    del row
+del ELM_table,line, Name, Group, REGEX #delete used variables
+
+ELM_keys = list(ELM_models.keys()) #Get ELM dict keys
+
+
+'''
+Load motif matches info
+
+'''
+MotifMatches_sites = args.input_sites
+#MotifMatches_sites = '/Users/JAVlvrd/Documents/Toxoplasma-2024/ToxoMotifs3/Data/ELM_Feb24_MotifMatches_sites.txt'
+MotifMatches_sites = '/Users/jesusav/Desktop/July2025_MotifMatches_sites.txt'
+MotifMatches_sites_table = pd.read_table(MotifMatches_sites)
+MotifMatches_sites_list = MotifMatches_sites_table.transpose().to_dict('list') #put the datafram in dictionary (of lists) format
+del MotifMatches_sites_table
+
+for key in  list(MotifMatches_sites_list.keys()):
+    MotifMatches_sites_list[key][3] = list(map(int,MotifMatches_sites_list[key][3].split(",")))
+del key
+
+
+'''
+Read Alignments and get motif matches positions
+'''
+
+os.chdir('/Users/jesusav/Documents/Cats/Article/Data/Alignments')
+
+Aln_groups={}
+
+for group in  list(MotifMatches_sites_list.keys()):
+    
+    ID = MotifMatches_sites_list[group][0] #TGME49_254720-t26_1-p1
+    ID = ID[0:13]
+    #ID = re.sub("-t26_1-p1", "", ID)
+    motif = MotifMatches_sites_list[group][1]
+
+
+    aln_name = ID+'.aln'
+    try:
+         aln_txt = open(aln_name, 'r')
+    except:
+        continue
+
+    info_subjects = {} #dict (ID) will contain organism, sequence, seq length, disorder
+    #slims_seqs = {}
+
+    for line in aln_txt:
+        if line.startswith('>'): #identify the lines with header with '>'
+            header = line.strip().split('|') #Separate the different pieces of information and store them in a list
+
+            subject_seqID = header[0] #select the ID of the Sequence
+            subject_seqID = subject_seqID.replace('>','').replace(' ','') #take away extra characters and spaces
+
+            info_subjects[subject_seqID]=['',0] #crate an entry in the info_proteins dic. using ID as key and storing gene name, aa length and empty sequence
+            #adding an empty string to store amino acid sequence by extension
+
+        else: #if the line is not a header then add it to the previous entry seq string
+            aln_piece = line.strip() #take away extra formating from the line with aa's
+            info_subjects[subject_seqID][0] = info_subjects[subject_seqID][0] + aln_piece #add currrent line to extend the protein sequence
+
+            del aln_piece #delete
+    del line, header, subject_seqID #delete used variables
+
+
+    subject_keys = list(info_subjects.keys()) #Get ELM dict keys
+    aln_group = {}
+
+    for seq in subject_keys:    #getting real positions and alignment positions
+        subject_seq = info_subjects[seq][0]
+        subject_ref = []
+        counter = 0
+        for position  in subject_seq:
+            if position == '-':
+                subject_ref.append('-')
+            else:
+                subject_ref.append(counter)
+                counter += 1
+        del position
+
+        slim_model = ELM_models[motif][0]
+        slim_indexes = []
+
+
+        #slim = re.findall(slim_model, subject_seq.replace("-",""))
+        slim_index = re.finditer(slim_model, subject_seq.replace("-",""))
+        
+        for m in slim_index:
+            #print(m)
+            #motif_i = m.group(1) #save the  instance
+            #motif_l = len(motif_i) #get the length
+            motif_s = subject_ref.index(m.start()) #get the start index
+            slim_indexes.append(motif_s)
+            del motif_s #,motif_i,motif_l
+
+        if seq.split("_")[0] == "TGME49" :
+            aln_group[seq+".ref"] = list(subject_ref[x] for x in slim_indexes)
+            aln_group[seq] = slim_indexes
+        else:
+            aln_group[seq] = slim_indexes
+        
+
+    del seq,subject_seq, subject_ref, counter, slim_model,slim_indexes,slim_index
+    Aln_groups[ID+"|"+motif] = aln_group   
+del group, motif, aln_name, aln_txt,subject_keys, info_subjects, aln_group
+del m, ID
+
+'''
+Evaluate presence of motifs in alignments
+'''
+
+DisOrgComp_cons = {}
+motif_window = 15
+
+for group in  list(MotifMatches_sites_list.keys()):
+    ID = MotifMatches_sites_list[group][0] #TGME49_254720-t26_1-p1
+    ID = ID[0:13]
+    #ID = re.sub("-t26_1-p1", "", ID)
+    motif = MotifMatches_sites_list[group][1]
+    key = ID+"|"+motif
+
+
+    #if motif == "PTAP":
+    true_motifs = MotifMatches_sites_list[group][3] #motifs from 
+
+    try:
+        all_motifs = Aln_groups[key][MotifMatches_sites_list[group][0]+'.ref'] #when there's no matches of a motif in a certain alignment e.g
+    except:
+        continue
+    
+     
+    true_index =[] #get the indices of the motifs in the reference sequence 
+    
+    for t_ind in true_motifs:
+        true_index.append(all_motifs.index(t_ind)) 
+    del t_ind
+    
+    # for site in true_motifs:
+    #     true_index.append(all_motifs.index(site)) 
+    # del site
+
+    guide_index = list(Aln_groups[key][MotifMatches_sites_list[group][0]][x] for x in true_index) #get the indices of the motifs in the reference sequence as in the alignment
+    #print(MotifMatches_sites_list[group], true_index,guide_index, "\n")
+
+    ind_seq = 0
+    for ind in guide_index:
+        seq_n = 0
+        strains_n = 0
+        species_n = 0 #at least it always has the reference species
+        ind_seq += 1 
+        
+        if(ind>motif_window):
+            low_lim = ind-motif_window 
+        else:
+            low_lim = 0
+        hig_lim = ind+motif_window 
+        
+        ind_range = [i for i in range(low_lim, hig_lim + 1) if i == ind or low_lim <= i <= hig_lim] #creates a list of positions beween a range 
+        
+        ind_group = Aln_groups[key]
+        if any('ref' in key for key in ind_group.keys()):
+            del ind_group[MotifMatches_sites_list[group][0]+'.ref']
+        ind_group = {k: value for k, value in ind_group.items() if any(i in value for i in ind_range)}
+       
+        
+        #ind_group = {k: value for k, value in Aln_groups[key].items() if ind in value} #subset the dictionary to only the sequences that have the exact same moitf match position
+        #this renders the interval criteria useless
+        
+        
+        #ind_seq = MotifMatches_sites_list[group][2][guide_index.index(ind)]
+        #ind_seq = MotifMatches_sites_list[group][2] #motif match number
+        
+
+        for seq in list(ind_group.keys()):
+            interval = range(low_lim, hig_lim)
+            #if ind in ind_group[seq]:
+            if bool(set(interval) & set(ind_group[seq])):  #here should be a more flexible criterium of motif position
+                org = seq[0:2]
+                if org == 'TG':
+                    strains_n += 1
+                elif org in species:
+                    species_n += 1
+                seq_n += 1
+
+        cons_st = (strains_n-1)/5
+        cons_sp = species_n/5
+        cons_org = (seq_n-1)/10
+                
+        #print(key, ind_seq, ind,cons_org,cons_st,cons_sp)
+                
+        DisOrgComp_cons[key+"|"+str(ind_seq)] = [ind,cons_org,cons_st,cons_sp] #correct index to position
+        del seq, org, interval, low_lim, hig_lim
+        del ind, ind_range, seq_n,strains_n, species_n,ind_group,cons_org,cons_st,cons_sp
+del true_motifs, all_motifs, true_index,guide_index,group
+del ID, motif, key
+
+
+#species_t = motif_sp_n / species_n
+#species_r = motif_sp_n / species_n
+
+
+'''
+Save presences scores in a text file
+'''
+
+print('Writing output file')
+
+os.chdir(out_dir) #choose directory to save table
+out_name = re.sub("_sites.txt", "", MotifMatches_sites)
+out_file = open(out_name+"_presence.txt", "w") #name of the table
+#out_file = open("ELM_Feb24_presence.txt", "w")
+out_file.write('key\t seq_id\t motif\t motif_n\t motif_site\tpresence_org\t presence_str\t presence_spc\n')#header
+for key in list(DisOrgComp_cons.keys()):
+    info = key.split('|')
+    out_file.write(f'{key}\t{info[0]}\t{info[1]}\t{info[2]}\t{DisOrgComp_cons[key][0]}\t{DisOrgComp_cons[key][1]}\t{DisOrgComp_cons[key][2]}\t{DisOrgComp_cons[key][3]}\n' )
+out_file.close()
+del key, info, out_file
