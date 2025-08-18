@@ -1,0 +1,11 @@
+
+# Run AF models
+sh Toxo_DMI_GPU_script_GPU1.0_commands-batch.sh >> batch_log.txt
+
+# Find files within locations
+find AF_predictions -type f -name relaxed*.cif > relaxed_cifs.txt 
+find AF_predictions -type f -name relaxed*.pdb > relaxed_pdbs.txt
+find AF_predictions -type f -name ranking_debug.json > score_jsons.txt 
+
+# Print all score file content into a single file
+for i in $(cat score_jsons.txt); do grep -H "model" $i >> raw_model_scores.txt; done
