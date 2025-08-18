@@ -29,18 +29,18 @@ for line in proteins_file: #for every line in the protein file
     if line.startswith(">"):
         row = line.strip()
         row_parts = row.split("|")
-        ID = row_parts[2].replace(" gene=", "").strip() #get the ID
+        ID = row_parts[2].replace(" gene=", "").strip() # Get the ID
         
         proteins_seqs[ID] = [""]
     else:
         row = line.strip()
-        proteins_seqs[ID][0] = proteins_seqs[ID][0] + row #The name skiping the column of SigPep prob
+        proteins_seqs[ID][0] = proteins_seqs[ID][0] + row # Add characters to protein sequence
         
 del row, line, ID
 
 
 '''
-Get Motif boundary information and select unique protein pair ids
+Get Motif boundary information and select unique protein pair IDs
 '''
 
 
@@ -74,7 +74,7 @@ for index, row in Motif_info.iterrows():
         
         motifProtein = row.ID # Motif ID
         motifID = row.Motif_Accession # Motif ID
-        motif_start = row.start # Motifs do not have python index defined boundaries, so to get their sequence we need -1
+        motif_start = row.start 
         motif_end = row.start + len(row.sequence) - 1 
         if motif_start > 4:
             m_s = int(motif_start)-5
@@ -105,7 +105,7 @@ for index, row in Motif_info.iterrows():
         
         motifProtein = row.ID # Motif ID
         motifID = row.Motif_Accession # Motif ID
-        motif_start = row.start # Motifs do not have python index defined boundaries, so to get their sequence we need -1
+        motif_start = row.start 
         motif_end = row.start + len(row.sequence) - 1
         if motif_start > 4:
             m_s = int(motif_start)-5
