@@ -104,26 +104,27 @@ uniprot_domains <- uniprot_domains %>% separate_rows(Gene_Names, sep = " ") # Se
 
 
 ```{r domains_survey}
-#uniprot_domains <- read_tsv(file="/Data/UniProt_29072025_domains.tsv")
+# Determine domain overlaps with motif matches
+domains <- uniprot_domains %>% select(Gene_Names, Entry, note, range) # Get minimal information for overlap 
+domains <- domains %>% separate(range, c("sDomain","eDomain"), sep="-", convert = T) # separate start and end of domain
 
-domains <- uniprot_domains %>% select(Gene_Names, Entry, note, range)
-domains <- domains %>% separate(range, c("sDomain","eDomain"), sep="-", convert = T)
 
-matches_domain_survey <- raw_matches %>% filter(ToxoDB_ID %in% uniprot_domains$Gene_Names) %>% 
-  select(ToxoDB_ID, Motif_Name, Match_N, Motif_Instance, Motif_sSite) %>%
+matches_domain_survey <- raw_matches %>% filter(ToxoDB_ID %in% uniprot_domains$Gene_Names) %>%  #get matches from proteins with annotated domains
+  select(ToxoDB_ID, Motif_Name, Match_N, Motif_Instance, Motif_sSite) %>% 
   mutate(Motif_eSite=Motif_sSite+nchar(Motif_Instance)-1)
 matches_domain_protein <- matches_domain_survey %>% select(ToxoDB_ID) %>% unique()
 
-matches_domains <- left_join(matches_domain_survey, domains %>% rename(ToxoDB_ID=Gene_Names))
-matches_domains$Domain_n <- 1*with(matches_domains, (
-                                 (Motif_sSite >= sDomain & Motif_sSite <= eDomain ) |
-                                   (Motif_eSite >= sDomain & Motif_eSite <= eDomain) ))
+matches_domains <- left_join(matches_domain_survey, domains %>% rename(ToxoDB_ID=Gene_Names)) #combine matches with domain boundaries using ToxoDB ids
+matches_domains$Domain_n <- 1*with(matches_domains, ( # Make a logical vector on the overlap of the motif within the domain
+                                 (Motif_sSite >= sDomain & Motif_sSite <= eDomain ) | 
+                                   (Motif_eSite >= sDomain & Motif_eSite <= eDomain) ) ) 
 
 matches_domains$Domain_n1 <- 1*with(matches_domains,   (Motif_sSite >= sDomain & Motif_sSite <= eDomain )  )
 
+# as a match can overlap with multiple domains, group by motif match and count domain overlaps
 matches_domains <- matches_domains %>% select(-Entry, -note ) %>% group_by(ToxoDB_ID, Motif_Name, Motif_Instance, Match_N, Motif_sSite, Motif_eSite) %>% summarise(Domain_overlap=sum(Domain_n)) %>% ungroup()
 
-matches_domains <- matches_domains %>% filter(Domain_overlap>0)
+matches_domains <- matches_domains %>% filter(Domain_overlap>0) #Get only matches with domain overlaps
 
 #write_tsv(matches_domains, file="/Data/ALIAS_MotifMatches_domains.tsv")
 
@@ -131,29 +132,30 @@ matches_domains <- matches_domains %>% filter(Domain_overlap>0)
 ```
 
 ```{r raw_pLDDT}
+# Get UniProt IDs to be mapped to ToxoDB ID
 uniprot_ids <- read_tsv(file="/Data/Genes_UniProt.txt") 
 colnames(uniprot_ids) <- c("ToxoDB_ID", "Protein_ID", "Description", "UPID") 
 uniprot_ids <- uniprot_ids %>% separate_rows(UPID, sep=",") %>% rename(UniProt_ID=UPID)%>% filter(!is.na(UniProt_ID))
 
-
+# Load all pLDDT values from Toxoplasma AF single protein models
 pLDDT_values <- read_table(file="/Data/all_models_pLDDT_values.txt", col_names = c("File", "AA", "Chain", "residue_n","plDDT")) 
-pLDDT_values <- pLDDT_values %>% mutate(UniProt_ID=gsub("-.*$","",gsub("AF-", "",File))) %>% select(-File, -Chain)
-pLDDT_values <- left_join(pLDDT_values, uniprot_ids %>% select(-Description))
-pLDDT_values <- pLDDT_values %>% mutate(Protein_ID=gsub("\\.R",".P",Protein_ID)) 
+pLDDT_values <- pLDDT_values %>% mutate(UniProt_ID=gsub("-.*$","",gsub("AF-", "",File))) %>% select(-File, -Chain) # Get Protein IDs from model names
+pLDDT_values <- left_join(pLDDT_values, uniprot_ids %>% select(-Description)) # add ToxoDB IDs
+pLDDT_values <- pLDDT_values %>% mutate(Protein_ID=gsub("\\.R",".P",Protein_ID))  # edit IDs
 
+matches_pLDDT <- raw_matches  %>% select(Protein_ID, Motif_Name,Motif_sSite, Motif_eSite) %>% mutate(avg_pLDDT=NA) # Create table for matches pLDDT info
+matches_pLDDT <- matches_pLDDT %>% mutate(Protein_ID=gsub("-p1","",Protein_ID))  # edit match ToxoDB ID
 
-matches_pLDDT <- raw_matches  %>% select(Protein_ID, Motif_Name,Motif_sSite, Motif_eSite) %>% mutate(avg_pLDDT=NA)
-matches_pLDDT <- matches_pLDDT %>% mutate(Protein_ID=gsub("-p1","",Protein_ID))
+proteins_ID <- pLDDT_values %>% filter(!is.na(Protein_ID)) %>% select(Protein_ID) %>% unique() %>% unlist() %>% as.vector() # Focus on protein with actual AF single protein models
+matches_pLDDT_all <- matches_pLDDT[0,] # initialise matches table for adding pLDDT
 
-proteins_ID <- pLDDT_values %>% filter(!is.na(Protein_ID)) %>% select(Protein_ID) %>% unique() %>% unlist() %>% as.vector()
-matches_pLDDT_all <- matches_pLDDT[0,]
 for(i in 1:length(proteins_ID)){
-  protein_motifs <- matches_pLDDT %>% filter(Protein_ID==proteins_ID[i])
-  protein_pLDDTs <- pLDDT_values %>% filter(Protein_ID==proteins_ID[i])
+  protein_motifs <- matches_pLDDT %>% filter(Protein_ID==proteins_ID[i]) # get the motif matches of the given protein
+  protein_pLDDTs <- pLDDT_values %>% filter(Protein_ID==proteins_ID[i]) # get the pLDDT residues values of the given protein
   for(j in 1:nrow(protein_motifs)){
-     protein_motifs[j,5] <- protein_pLDDTs %>% filter(residue_n>=unlist(protein_motifs[j,3]) & residue_n<= unlist(protein_motifs[j,4])) %>% select(plDDT) %>% unlist() %>% mean()
+     protein_motifs[j,5] <- protein_pLDDTs %>% filter(residue_n>=unlist(protein_motifs[j,3]) & residue_n<= unlist(protein_motifs[j,4])) %>% select(plDDT) %>% unlist() %>% mean() # get the pLDDT values from the motif ranges and summarise them 
   }
-  matches_pLDDT_all <- rbind(matches_pLDDT_all, protein_motifs)
+  matches_pLDDT_all <- rbind(matches_pLDDT_all, protein_motifs) # add motif pLDDT averages to the all matches tables
 }
 
 #write_tsv(matches_pLDDT_all, file="/Data/ALIAS_MotifMatches_pLDDT.tsv")
@@ -162,7 +164,7 @@ for(i in 1:length(proteins_ID)){
 
 
 ```{r dssp_accessibility}
-
+# Map of residue total accessibilities for standardisation
 Accessibility_map <- c(
   A=129, R=274, N=195, D=193, C=167,
   E=223, Q=225, G=104, H=224, I=197,
@@ -170,29 +172,30 @@ Accessibility_map <- c(
   S=155, T=172, W=285, Y=263, V=174
 )
 
+# Load DSSP accessibility values of all AF single protein models
 dssp_values <- read_table(file="/Data/all_model_dssp_values.txt", col_names = c("File", "residue_n", "Chain", "AA","total_accessibility")) 
-dssp_values <- dssp_values %>% mutate(UniProt_ID=gsub("-.*$","",gsub("AF-", "",File))) %>% select(-File, -Chain)
-dssp_values <- left_join(dssp_values, uniprot_ids %>% select(-Description))
-dssp_values <- dssp_values %>% mutate(Protein_ID=gsub("\\.R",".P",Protein_ID)) 
-dssp_values <- dssp_values %>% mutate(norm_accessibility=(total_accessibility/Accessibility_map[AA]))
+dssp_values <- dssp_values %>% mutate(UniProt_ID=gsub("-.*$","",gsub("AF-", "",File))) %>% select(-File, -Chain) # Get Protein IDs from model names
+dssp_values <- left_join(dssp_values, uniprot_ids %>% select(-Description)) # add ToxoDB IDs
+dssp_values <- dssp_values %>% mutate(Protein_ID=gsub("\\.R",".P",Protein_ID)) # edit IDs
 
-matches_acc <- raw_matches  %>% select(Protein_ID, Motif_Name,Motif_sSite, Motif_eSite) %>% mutate(avg_RSA=NA)
-matches_acc <- matches_acc %>% mutate(Protein_ID=gsub("-p1","",Protein_ID))
+dssp_values <- dssp_values %>% mutate(norm_accessibility=(total_accessibility/Accessibility_map[AA])) # Determine Relative Surface accessibility (RSA)
 
-proteins_ID <- dssp_values %>% filter(!is.na(Protein_ID)) %>% select(Protein_ID) %>% unique() %>% unlist() %>% as.vector()
-matches_acc_all <- matches_acc[0,]
+matches_acc <- raw_matches  %>% select(Protein_ID, Motif_Name,Motif_sSite, Motif_eSite) %>% mutate(avg_RSA=NA)  # Create table for matches RSA info
+matches_acc <- matches_acc %>% mutate(Protein_ID=gsub("-p1","",Protein_ID))  # edit match ToxoDB ID
+
+proteins_ID <- dssp_values %>% filter(!is.na(Protein_ID)) %>% select(Protein_ID) %>% unique() %>% unlist() %>% as.vector() # Focus on protein with actual AF single protein models
+matches_acc_all <- matches_acc[0,] # initialise matches table for adding RSa
 
 for(i in 1:length(proteins_ID)){
-  protein_motifs <- matches_acc %>% filter(Protein_ID==proteins_ID[i])
-  protein_accs <- dssp_values %>% filter(Protein_ID==proteins_ID[i])
+  protein_motifs <- matches_acc %>% filter(Protein_ID==proteins_ID[i]) # get the motif matches of the given protein
+  protein_accs <- dssp_values %>% filter(Protein_ID==proteins_ID[i]) # get the RSA residues values of the given protein
   for(j in 1:nrow(protein_motifs)){
      protein_motifs[j,5] <- protein_accs %>% 
        filter(residue_n>=unlist(protein_motifs[j,3]) & residue_n<= unlist(protein_motifs[j,4])) %>% 
-       select(norm_accessibility) %>% unlist() %>% mean()
+       select(norm_accessibility) %>% unlist() %>% mean() # get the RSA values from the motif ranges and summarise them 
   }
-  matches_acc_all <- rbind(matches_acc_all, protein_motifs)
+  matches_acc_all <- rbind(matches_acc_all, protein_motifs)  # add motif RSA averages to the all matches tables
 }
-
 
 #write_tsv(matches_acc_all, file="/Data/ALIAS_MotifMatches_RSA.tsv")
 
