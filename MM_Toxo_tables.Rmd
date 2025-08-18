@@ -63,18 +63,19 @@ matches_phosphosite_protein <- matches_phosphosite_survey %>% select(ToxoDB_ID) 
 matches_phosphosite <- matches_phosphosite_survey[0,] #empty dataframe with compatible columns
 matches_phosphosite$Modification_n <- "" #Empty column for saving modification count
 for(i in 1:nrow(matches_phosphosite_protein)){
-  matches_phosphosite_sample <- matches_phosphosite_survey %>% filter(ToxoDB_ID==unlist(matches_phosphosite_protein[i,1]))
-  phosphosites_sample <-  phosphosites %>% filter(Gene_ID==unlist(matches_phosphosite_protein[i,1]))
-  matches_phosphosite_sample$Modification_n <- 0
+  matches_phosphosite_sample <- matches_phosphosite_survey %>% filter(ToxoDB_ID==unlist(matches_phosphosite_protein[i,1])) # Get matches for the given protein
+  phosphosites_sample <-  phosphosites %>% filter(Gene_ID==unlist(matches_phosphosite_protein[i,1])) # Get modification of the given protein
+  matches_phosphosite_sample$Modification_n <- 0 # Set 0 as default initial value
   
   for(j in 1:nrow(matches_phosphosite_sample)){
-    matches_phosphosite_sample[j,7] <- phosphosites_sample %>% 
+    # count the number of modifications within the motif
+    matches_phosphosite_sample[j,7] <- phosphosites_sample %>%  
       filter(Gene_ID==unlist(matches_phosphosite_sample[j,1]) & 
                aa_pos >= unlist(matches_phosphosite_sample[j,5]) &
                aa_pos <= unlist(matches_phosphosite_sample[j,6])) %>% nrow()
   }
   
-  matches_phosphosite <- rbind(matches_phosphosite, matches_phosphosite_sample)
+  matches_phosphosite <- rbind(matches_phosphosite, matches_phosphosite_sample) # Add temporary dataset to larger one
   
 }
 
@@ -87,16 +88,16 @@ matches_phosphosite <- matches_phosphosite %>% filter(Modification_n>0) # Take a
 
 
 ```{r UniProt_domains_raw_table}
+# Load domain boundaries information from UniProt
 uniprot_domains_raw <- read_tsv(file="/Data/uniprotkb_taxonomy_id_508771_2025_07_29.tsv")
-colnames(uniprot_domains_raw) <- gsub(" ", "_", colnames(uniprot_domains_raw))
+colnames(uniprot_domains_raw) <- gsub(" ", "_", colnames(uniprot_domains_raw)) # Remove spaces from column names
 
-uniprot_domains <- uniprot_domains_raw %>% rename(Domain=`Domain_[FT]`) %>% filter(!is.na(Domain))
-uniprot_domains <- uniprot_domains %>% separate_rows(Domain, sep = "; DOMAIN ") %>% mutate(Domain=gsub("DOMAIN ","", Domain))
-uniprot_domains <- uniprot_domains %>% separate(Domain, c("range", "note", "evidence"), sep="; /")
-uniprot_domains <- uniprot_domains %>% mutate(note=gsub("note=","",gsub("\"", "",note)), evidence=gsub("evidence=.*?\\|","",gsub("\"", "",evidence)))
-uniprot_domains <- uniprot_domains %>% mutate(note=gsub("note=","",gsub("\"", "",note)), evidence=gsub("evidence=.*?\\|","",gsub("\"", "",evidence)))
-uniprot_domains <- uniprot_domains %>% mutate(range=gsub("\\.\\.","-",range), Gene_Names=gsub("^.*?(TGME49)","\\1",Gene_Names))
-uniprot_domains <- uniprot_domains %>% separate_rows(Gene_Names, sep = " ")
+uniprot_domains <- uniprot_domains_raw %>% rename(Domain=`Domain_[FT]`) %>% filter(!is.na(Domain)) # Rename domain column name and keep proteins with actual domains
+uniprot_domains <- uniprot_domains %>% separate_rows(Domain, sep = "; DOMAIN ") %>% mutate(Domain=gsub("DOMAIN ","", Domain)) # separate protein domain per single row
+uniprot_domains <- uniprot_domains %>% separate(Domain, c("range", "note", "evidence"), sep="; /") # Separate single domain information
+uniprot_domains <- uniprot_domains %>% mutate(note=gsub("note=","",gsub("\"", "",note)), evidence=gsub("evidence=.*?\\|","",gsub("\"", "",evidence))) # take away extra/redundant characters
+uniprot_domains <- uniprot_domains %>% mutate(range=gsub("\\.\\.","-",range), Gene_Names=gsub("^.*?(TGME49)","\\1",Gene_Names)) # Get ToxoDB IDs
+uniprot_domains <- uniprot_domains %>% separate_rows(Gene_Names, sep = " ") # Separate ToxoIDs as single rows
 
 #write_tsv(uniprot_domains %>% select(-Protein_names), file="/Data/UniProt_29072025_domains.tsv")
 ```
