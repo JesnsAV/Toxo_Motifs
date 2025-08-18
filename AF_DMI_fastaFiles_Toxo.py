@@ -3,7 +3,7 @@
 """
 Created on 2 July 2025
 
-@author: jesusav
+@author: Jesus Alvarado Valverde
 """
 
 import os
@@ -18,8 +18,7 @@ Make a list of all proteins in the Toxoplasma proteome
 IDs are the dictionary keys
 '''
 
-#os.chdir('/Volumes/imb-luckgr/imb-luckgr2/projects/AlphaFold/HuRI_DMI_AF_modelling/Domain_mappings/')
-os.chdir('/Users/jesusav/Desktop/')
+os.chdir('/Data/')
 
 ToxoProteome = 'ToxoDB-68_TgondiiME49_AnnotatedProteins.fasta' #File with information on Proteins 
     
@@ -44,11 +43,9 @@ del row, line, ID
 Get Motif boundary information and select unique protein pair ids
 '''
 
-#os.chdir('/Volumes/imb-luckgr/imb-luckgr2/projects/AlphaFold/HuRI_DMI_AF_modelling/Domain_mappings/')
-#os.chdir('.')
 
 # Motif information
-Motif_info = pd.read_table('Motif_table_4.tsv')
+Motif_info = pd.read_table('Motif_table.tsv')
 Motif_info = Motif_info.dropna(subset=['start'])
 
 Motif_proteins = Motif_info["ID"].unique().tolist()
@@ -57,14 +54,11 @@ Motif_proteins = Motif_info["ID"].unique().tolist()
 Get Domain sequences
 '''
 
-#os.chdir('/Volumes/imb-luckgr/imb-luckgr2/projects/AlphaFold/HuRI_DMI_AF_modelling/Domain_mappings/')
-#os.chdir('.')
-
 # Human domain information
 Domain_info = pd.read_table('Domain_seqs.tsv')
 
 '''
-Produce table with fasta files limits
+Produce a table with the Fasta files' limits
 '''
 out_file = open('ToxoHuman_DMI_fragment_boundaries.txt',"w")
 
@@ -101,9 +95,6 @@ out_file.close()
 '''
 Produce fasta files with protein fragment pairs
 '''
-
-# os.chdir('/Volumes/imb-luckgr/imb-luckgr2/projects/AlphaFold/HuRI_DMI_AF_modelling/fastaFiles')
-# os.chdir('/Volumes/imb-luckgr/imb-luckgr2/projects/AlphaFold/HuRI_DMI_AF_modelling/missing_fastas')
 os.chdir('Fastas')
 
 for index, row in Motif_info.iterrows():
