@@ -1,11 +1,11 @@
 #! /bin/bash
 
-python3 /fsimb/groups/imb-luckgr/imb-luckgr2/projects/AlphaFold/scripts/organize_computed_msas.py -computed_msas_path /fsimb/groups/imb-luckgr/imb-luckgr2/projects/AlphaFold/computed_msas/ -run_path /fsimb/groups/imb-luckgr/imb-luckgr2/projects/AlphaFold/Toxoplasma/AF_predictions/
+python3 /AlphaFold/scripts/organize_computed_msas.py -computed_msas_path /AlphaFold/computed_msas/ -run_path /AlphaFold/Toxoplasma/AF_predictions/
 
 NVIDIA_VISIBLE_DEVICES=6 time singularity run --contain --nv --nvccli --writable-tmpfs --bind /home,/fsimb,/media,/mnt,/tmp /mnt/storage/alphafold/v232/alphafold_2.3.2.sif \
---fasta_paths=/fsimb/groups/imb-luckgr/imb-luckgr2/projects/AlphaFold/Toxoplasma/AF_predictions/FILE_NAME.fasta
+--fasta_paths=/Toxoplasma/AF_predictions/FILE_NAME.fasta
 
---output_dir=/fsimb/groups/imb-luckgr/imb-luckgr2/projects/AlphaFold/Toxoplasma/AF_predictions/ \
+--output_dir=/AlphaFold/Toxoplasma/AF_predictions/ \
 --model_preset=multimer \
 --db_preset=full_dbs \
 --max_template_date=2020-05-14 \
