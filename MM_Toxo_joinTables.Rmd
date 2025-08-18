@@ -1,0 +1,211 @@
+---
+title: "Toxo_joinTables"
+author: "JesusAV"
+date: "2025-07-29"
+output: html_document
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = T, message = F, warning = F)
+```
+
+```{r Packages, echo=F}
+library(tidyverse)
+library(gridExtra)
+library(knitr) 
+library(dplyr)
+library(ggstats)
+library(ggplot2)
+library(ggbeeswarm)
+library(corrplot)
+library(colorspace)
+
+```
+
+
+```{r raw_table}
+raw_matches <- read_tsv(file="/Users/jesusav/Desktop/July2025_MotifMatches_list.txt")
+raw_matches
+raw_matches %>% select(Protein_ID) %>% unique() %>% nrow() # 8,204
+
+raw_matches <- raw_matches %>% mutate(ToxoDB_ID = gsub("(\\.|-).*?$","",Protein_ID)) %>% mutate(Motif_type = gsub("_.*?$","",Motif_Name))
+raw_matches %>% select(ToxoDB_ID) %>% unique() %>% nrow()  # 8,140
+
+raw_matches <- raw_matches %>% mutate(Motif_eSite=Motif_sSite+nchar(Motif_Instance))
+raw_matches <- raw_matches %>% mutate(Motif_sSite=Motif_sSite+1)
+raw_matches <- raw_matches %>% mutate(Protein_ID=gsub("-p1$","",Protein_ID))
+```
+
+
+
+
+```{r evidence_tables}
+## Mass Spectometry evidence
+mass_spec <- read_tsv(file="/Users/jesusav/Documents/Cats/Article/Data/2025/GenesByMassSpec_Summary.txt") 
+colnames(mass_spec) <- c("ToxoDB_ID", "Protein_ID", "Description", "MS_samples", "MS_peptides_within", "MS_peptides_across", "protein_length") 
+mass_spec <- mass_spec %>% 
+  mutate(MS_samples_byPL=MS_samples/protein_length, MS_peptides_within_byPL=MS_peptides_within/protein_length,
+         MS_peptides_across_byPL=MS_peptides_across/protein_length) 
+
+## LOPIT location evidence
+locations <- read_tsv(file = "/Users/jesusav/Desktop/TgME49_LOPIT_MS_evidence.txt")
+locations <- locations %>% select(Gene_ID, Predicted_Location_TAGM_MAP)
+colnames(locations) <- c("ToxoDB_ID", "LOPIT_location")
+
+### updated location for secreted proteins
+microneme_lopit <- read_table(file="/Users/jesusav/Documents/Cats/Article/Data/2025/ToxoDB_LOPIT_micronemes_20250619.txt")
+rhoptry1_lopit <- read_table(file="/Users/jesusav/Documents/Cats/Article/Data/2025/ToxoDB_LOPIT_rhoptry1_20250619.txt")
+rhoptry2_lopit <- read_table(file="/Users/jesusav/Documents/Cats/Article/Data/2025/ToxoDB_LOPIT_rhoptry2_20250619.txt")
+densegrls_lopit <- read_table(file="/Users/jesusav/Documents/Cats/Article/Data/2025/ToxoDB_LOPIT_densegranules_20250619.txt")
+
+microneme_description <- mass_spec %>% filter(grepl("MIC[0-9]|microneme",Description, ignore.case = TRUE, perl = FALSE))
+rhoptry_description <- mass_spec %>% filter(grepl(" ROP[0-9]| RON[0-9]|rhoptr",Description, ignore.case = TRUE, perl = FALSE))
+densegrls_description <- mass_spec %>% filter(grepl("GRA[0-9]|granule",Description, ignore.case = TRUE, perl = FALSE))
+
+## Organism presence 
+matches_presence <- read_tsv(file="/Users/jesusav/Desktop/July2025_MotifMatches_presence.txt")
+colnames(matches_presence) <- c("key", "ToxoDB_ID", "Motif_Name", "Match_N", "Motif_sSite", "presence_org", "presence_str", "presence_spc")
+matches_presence <- matches_presence %>% select(-key, -Motif_sSite)
+
+## ToxoDB phosphosite overlaps
+matches_phosphosite <- read_tsv(file="/Users/jesusav/Desktop/July2025_MotifMatches_phosphosites.tsv")
+
+## UniProt domains overlaps
+matches_domains <- read_tsv(file="/Users/jesusav/Desktop/July2025_MotifMatches_domains.tsv")
+
+## pLDDT values
+matches_pLDDT_all <- read_tsv(file="/Users/jesusav/Desktop/July2025_MotifMatches_pLDDT.tsv")
+
+## RSA values
+matches_RSA_all <- read_tsv(file="/Users/jesusav/Desktop/July2025_MotifMatches_RSA.tsv")
+
+## ELM taxons
+elm_taxons <- read_table(file="/Users/jesusav/Documents/Cats/Article/Data/2025/elm_classes_Jun25_taxons.txt")
+elm_taxons <- elm_taxons %>% rename(Motif_Name=ELMIdentifier)
+
+elm_taxons %>% filter(modification==1) 
+```
+
+```{r joins}
+enriched_matches <- left_join(raw_matches, mass_spec %>% select(ToxoDB_ID, Description) %>% unique()) %>% unique() 
+
+secretion_org <- c("micronemes", "rhoptries", "dense_granules")
+enriched_matches <- left_join(enriched_matches, locations)
+enriched_matches <- enriched_matches %>% mutate(LOPIT_location=case_when(is.na(LOPIT_location) ~ "undefined", TRUE ~ LOPIT_location))
+enriched_matches <- enriched_matches %>% 
+  mutate(LOPIT_location=case_when(ToxoDB_ID %in% microneme_lopit$Gene ~ "micronemes", ToxoDB_ID %in% rhoptry1_lopit$Gene ~ "rhoptries_1",
+                                  ToxoDB_ID %in% rhoptry1_lopit$Gene ~ "rhoptries_2", ToxoDB_ID %in% densegrls_lopit$Gene ~ "dense_granules", 
+                                  TRUE ~ LOPIT_location))
+enriched_matches <- enriched_matches %>% mutate(location=gsub("_(1|2)","",LOPIT_location)) %>%
+  mutate(location=gsub("_(soluble|membranes)","",location)) %>% mutate(location=gsub("_(chromatin|non_chromatin)","",location)) %>%
+  mutate(location=gsub("_(integral|peripheral)","",location)) %>% mutate(location=gsub("(19S|20S|40S|60S)_","",location))
+enriched_matches <- enriched_matches %>% 
+  mutate(secreted=case_when(location %in% secretion_org ~ 1, TRUE ~ 0))
+enriched_matches <- enriched_matches %>% 
+  mutate(location=case_when(secreted==0 & ToxoDB_ID %in% microneme_description$ToxoDB_ID ~ "micronemes", 
+                            secreted==0 & ToxoDB_ID %in% rhoptry_description$ToxoDB_ID ~ "rhoptries",
+                            secreted==0 & ToxoDB_ID %in% densegrls_description$ToxoDB_ID ~ "dense_granules", 
+                            TRUE ~ location))
+enriched_matches <- enriched_matches %>% 
+  mutate(secreted=case_when(location %in% secretion_org ~ 1, TRUE ~ 0))
+
+enriched_matches <- left_join(enriched_matches, matches_presence) %>% arrange(ToxoDB_ID)
+
+enriched_matches <- left_join(enriched_matches, matches_pLDDT_all)
+enriched_matches <- left_join(enriched_matches, matches_RSA_all)
+
+enriched_matches <- left_join(enriched_matches, matches_domains)
+enriched_matches <- enriched_matches %>% mutate(Domain_overlap=case_when(is.na(Domain_overlap) ~ 0, TRUE ~ Domain_overlap))
+
+enriched_matches <- left_join(enriched_matches, matches_phosphosite)
+enriched_matches <- enriched_matches %>% mutate(Modification_n=case_when(is.na(Modification_n) ~ 0, TRUE ~ Modification_n))
+
+enriched_matches <- left_join(enriched_matches, elm_taxons %>% select(Motif_Name, ELM_Tg, ELM_Hs, modification,phosphorylation, extracellular)) 
+
+write_tsv(enriched_matches, file="/Users/jesusav/Desktop/July2025_MotifMatches_enriched.txt")
+
+enriched_matches %>% filter(ToxoDB_ID=="TGME49_201210" & Motif_Name=="LIG_LIR_Nem_3")
+```
+
+```{r filtering }
+matches_filt <- enriched_matches %>% 
+  filter(ELM_Tg==1 | (ELM_Hs==1 & secreted==1)) %>%# Taxonomy filter
+  filter(Dis_context=="disorder") %>% select(-Dis_context) %>% #disorder context filters
+  filter( (avg_pLDDT<=80 & avg_RSA>=0.25) | (is.na(avg_pLDDT) & Domain_overlap==0) ) %>% # pLDDT and RSA disorder context filter when available, if not the available 
+  filter(ToxoDB_ID%in%mass_spec$ToxoDB_ID ) # expression evidence filter
+        
+  
+matches_filt 
+write_tsv(matches_filt, file="/Users/jesusav/Desktop/July2025_MotifMatches_filtered.txt")
+```
+```{r Class_selection}
+
+elm_classes <-  read_tsv(file="/Users/jesusav/Documents/Cats/Article/Data/2025/elm_classes_April25.tsv", col_names = F)
+elm_classes <- elm_classes %>% select(X1, X6) %>% rename(Motif_Name=X1, Motif_Accession=X6)
+matches_filt <- left_join(matches_filt, elm_classes)
+
+TRAF6_motifs <- matches_filt %>% filter(!(avg_pLDDT>80) & secreted==1 & Motif_Name=="LIG_TRAF6_MATH_1" & LOPIT_location!="microneme")
+
+TRAF6_motifs_df <- TRAF6_motifs %>% 
+  select(ToxoDB_ID, Motif_Name, Motif_Accession, Match_N, Motif_Instance, Motif_sSite)
+colnames(TRAF6_motifs_df) <- c("ID", "Motif_Name", "Motif_Accession", "Match_N", "sequence", "start", "end")
+#write_tsv(TRAF6_motifs_df, file="/Users/jesusav/Desktop/Motif_table.tsv")
+
+Class_selection <- c("LIG_TRAF6_MATH_1","LIG_PTAP_UEV_1", "LIG_VCP_SHPBox_1", "LIG_VCP_VIM_2","LIG_SH3_CIN85_PxpxPR_1", "DEG_SPOP_SBC_1", "LIG_LYPXL_S_1", "LIG_Actin_WH2_2","LIG_EF_ALG2_ABM_2")
+Selected_motifs <- matches_filt %>% 
+  filter(!(avg_pLDDT>80) & secreted==1 & Motif_Name %in% Class_selection & LOPIT_location!="micronemes")
+
+
+Selected_motifs_df <- Selected_motifs %>% 
+  select(ToxoDB_ID, Motif_Name, Motif_Accession, Match_N, Motif_Instance, Motif_sSite)
+colnames(Selected_motifs_df) <- c("ID", "Motif_Name", "Motif_Accession", "Match_N", "sequence", "start", "end")
+#write_tsv(Selected_motifs_df, file="/Users/jesusav/Desktop/Motif_table.tsv")
+
+Selected_motifs_df_1 <- read_tsv(file="/Users/jesusav/Desktop/Motif_table.tsv")
+Selected_motifs_df_2 <- read_tsv(file="/Users/jesusav/Desktop/Motif_table_2.tsv")
+Selected_motifs3 <- matches_filt %>% 
+  filter(secreted==1 & Motif_Name %in% Class_selection & LOPIT_location!="micronemes")
+ 
+Selected_motifs_df_3 <- Selected_motifs3 %>% 
+  select(ToxoDB_ID, Motif_Name, Motif_Accession, Match_N, Motif_Instance, Motif_sSite)
+colnames(Selected_motifs_df_3) <- c("ID", "Motif_Name", "Motif_Accession", "Match_N", "sequence", "start", "end")
+  
+Selected_motifs_df_3 <- setdiff(setdiff( Selected_motifs_df_3, Selected_motifs_df_1 ) ,Selected_motifs_df_2)
+
+#write_tsv(Selected_motifs_df_2, file="/Users/jesusav/Desktop/Motif_table_2.tsv")
+
+## To rerun two motifs with missing N-ter sides
+Selected_motifs2 %>% count(Motif_Name)
+Selected_motifs %>% select(Motif_Name) %>% table()
+
+matches_filt %>% filter(ToxoDB_ID %in% Selected_motifs_df_3$ID ) %>% count(LOPIT_location)
+Selected_motifs_df_3 %>% filter(ID=="TGME49_319090")
+
+Selected_motifs_df_1 %>% select(-Match_N, -start) %>% unique() #172 -> 168
+Selected_motifs_df_2 %>% select(-Match_N, -start) %>% unique() #125 -> 100
+Selected_motifs_df_3 %>% select(-Match_N, -start) %>% unique() #24 -> 18
+
+#write_tsv(Selected_motifs_df_3, file="/Users/jesusav/Desktop/Motif_table_3.tsv")
+
+
+Selected_motifs_df_1 <- read_tsv(file="/Users/jesusav/Desktop/Motif_table.tsv")
+Selected_motifs_df_2 <- read_tsv(file="/Users/jesusav/Desktop/Motif_table_2.tsv")
+Selected_motifs_df_3 <- read_tsv(file="/Users/jesusav/Desktop/Motif_table_3.tsv")
+
+
+Selected_motifs4 <- matches_filt %>% 
+  filter(secreted==1 & Motif_Name %in% Class_selection & LOPIT_location!="micronemes")
+ 
+Selected_motifs_df_4 <- Selected_motifs4 %>% 
+  select(ToxoDB_ID, Motif_Name, Motif_Accession, Match_N, Motif_Instance, Motif_sSite)
+colnames(Selected_motifs_df_4) <- c("ID", "Motif_Name", "Motif_Accession", "Match_N", "sequence", "start", "end")
+  
+Selected_motifs_df_4 <- setdiff(setdiff(setdiff( Selected_motifs_df_4, Selected_motifs_df_1 ) ,Selected_motifs_df_2) ,Selected_motifs_df_3)
+
+#write_tsv(Selected_motifs_df_4, file="/Users/jesusav/Desktop/Motif_table_4.tsv")
+
+``` 
+
+```{r experimental_tables}
+
+
+```

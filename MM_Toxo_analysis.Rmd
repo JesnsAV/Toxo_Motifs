@@ -1,0 +1,705 @@
+---
+title: "Toxo_motif_analysis"
+author: "JesusAV"
+date: "2025-07-29"
+output: html_document
+---
+```{r Packages, echo=F}
+library(tidyverse)
+library(gridExtra)
+library(knitr) 
+library(dplyr)
+library(ggstats)
+library(ggplot2)
+library(ggvenn) 
+library(ggbeeswarm)
+library(ggVennDiagram)
+library(corrplot)
+library(colorspace)
+library(igraph)
+library(networkD3)
+library(htmlwidgets)
+library(tools)
+library(ggh4x)
+library(scales)
+library(cowplot)
+```
+
+```{r Palettes}
+colors_Var <-c("#56B4E9","#E69F00","#d52221","#999999")
+colors_BIN <- c("darkgrey","#006AB4")
+colors_DMI <- c("darkgrey","#18974C")
+colors_blues <- c("#CADCE8","#66A9D6","#4E93C1","#006AB4","#00548C")
+colors_ELMtypes <- c("#734595","#A1BE1F","#F49E17","#3B6FB6","#D41645","#F4C61F")
+colors_ELMtypes_grey <-c("#A599B1", "#B9C191", "#CEB78E", "#97A5BC", "#BF8B98","#D0C492")
+colors_ELMtypes_white <-c("#CCC1D9", "#E1E9B8", "#F6DFB5", "#BFCDE4", "#E6B3C0","#F8EDB9")
+colors_effectors <- c("#FED756","#8DB7E2","#70BF4A")
+colors_effectors_white <- c("#FDF2CB","#DBE7F4","#D3E8C4")
+# https://www.datanovia.com/en/blog/awesome-list-of-657-r-color-names/
+
+elm_categories <- c("Cleavage", "Degrons","Subst. recog.", "Scaffolding", "PTM sites", "Localization")
+```
+
+```{r Motif_datasets}
+enriched_matches <- read_tsv(file="/Users/jesusav/Desktop/July2025_MotifMatches_enriched.txt")
+strong_matches <- read_tsv(file="/Users/jesusav/Desktop/July2025_MotifMatches_filtered.txt")
+
+strong_matches <- strong_matches %>% mutate(location=as.factor(gsub("_"," ",toTitleCase(location))))
+strong_matches$location <- fct_relevel(strong_matches$location, "Micronemes", "Rhoptries", "Dense granules")
+
+strong_matches <- strong_matches %>% mutate(characterised=case_when(Description=="hypothetical protein" | Description=="hypothetical protein, conserved" |is.na(Description)  ~ 0, TRUE ~ 1))
+
+strong_matches <- strong_matches %>% mutate(modifed=case_when(phosphorylation==1 & Modification_n > 0   ~ 1, TRUE ~ 0))
+strong_matches %>% count(phosphorylation, modifed)
+21836/(21836+429330) # 4% of modifiable motifs actually had a phosphorylation
+strong_matches %>% select(ToxoDB_ID) %>% unique() # 5,384 proteins
+
+elm_classes <-  read_tsv(file="/Users/jesusav/Documents/Cats/Article/Data/2025/elm_classes_April25.tsv", col_names = F)
+elm_classes <- elm_classes %>% select(X1, X6) %>% rename(Motif_Name=X1, Motif_Accession=X6)
+
+
+enriched_matches %>% filter(ToxoDB_ID=="TGME49_275470" & Motif_Name=="LIG_TRAF6_MATH_1")
+```
+
+
+
+```{r Figure2_Graphic_B_1}
+
+colors_locations_1 <- c("#FED756","#8DB7E2","#70BF4A",rep("lightgrey",15))
+
+## Motif strong matches per subcellular location
+p1 <- ggplot(strong_matches, aes(x=location, fill=location)) + geom_bar()+
+  ylab("Motif matches") + xlab("Subcellular location") + 
+  theme_classic() +  
+  scale_fill_manual(values=colors_locations_1) +
+  scale_y_log10(labels = scales::label_comma()) + labs(fill = "Location") +
+  theme(text = element_text(size = 12), legend.position = "null",
+        axis.text = element_text(color = "black"), axis.ticks = element_line(linewidth = 0.5, color = "black"), 
+        axis.text.x = element_text(angle = 30, vjust = 1, hjust=1)) 
+p1 + geom_text(stat='count', aes(label=format(after_stat(count), big.mark=",")), vjust=-2, size=3) +
+  geom_text(stat='prop', vjust=-0.25, size=3) 
+
+## Motif strong matches per motif category
+p2 <- ggplot(strong_matches, aes(y=Motif_type, fill=Motif_type)) + geom_bar()+
+  xlab("Motif matches") + ylab("Motif category") + 
+  theme_classic() +  
+  scale_fill_manual(values=colors_ELMtypes) +
+  scale_x_log10(labels = scales::label_comma()) + 
+  theme(text = element_text(size = 12), legend.position = "null",
+        axis.text = element_text(color = "black"), axis.text.x = element_text(angle = 30, vjust = 1, hjust=1),
+        axis.ticks = element_line(linewidth = 0.5, color = "black")) +
+  scale_y_discrete(limits=rev, labels = rev(elm_categories))
+p2 + geom_text(stat='count', aes(label=format(after_stat(count), big.mark=",")), vjust=1, hjust=-0.5, size=3) +
+  geom_text(stat='prop', vjust=-0.5, hjust=-0.5, size=3) 
+
+
+strong_matches %>% count( Motif_type) 
+```
+
+```{r Figure2_Graphic_B_2}
+matches_grid <- strong_matches %>% count(location, Motif_type) # Motif match matrix
+
+## Motif strong matches per motif category and subcellular location
+p3 <- ggplot(matches_grid, aes(location, Motif_type, fill=n  )) + geom_tile(color = "white", lwd = 0.5) +
+  scale_fill_gradient(limits=c(1, 230000), breaks=c(10,1000,100000), labels = scales::label_comma(), trans = "log", low = "white", high = "blue")+
+  xlab("Subcellular location") + labs(fill = "Match number") +
+  theme_minimal() + 
+  theme(text = element_text(size = 15), panel.grid.major = element_blank(), 
+        axis.text = element_text(color = "black"), panel.grid.minor = element_blank(), 
+        axis.ticks = element_blank(), axis.title.y=element_blank(), axis.title.x =  element_text(hjust=0.3),
+        axis.text.x = element_text(size = 10, angle = 30, vjust = 1, hjust=1), plot.title = element_blank(), 
+        legend.key.height= unit(1, 'cm'), legend.key.width= unit(1, 'cm'), 
+        legend.title.position="top",legend.direction="horizontal",
+        legend.title = element_text(size=20, hjust=0, vjust=2), 
+        legend.text = element_text(size=12, angle=30, vjust = 1, hjust=1)) +
+  scale_y_discrete(limits=rev, labels = rev(elm_categories))
+p3
+p4 <- ggplot() + theme_void()
+
+grid.arrange(p1 + theme(axis.text.x=element_blank(), 
+                        axis.title.x=element_blank(), plot.margin=unit(c(0.1, 0.2, 0, 1),"cm")),
+             p4, p3 + theme(legend.position = "null"), 
+             p2 + theme(axis.text.y=element_blank(), 
+                        axis.title.y=element_blank(), plot.margin=unit(c(0.2, 0.1, 1.6, 0),"cm")) ,
+             heights=c(1,2), widths=c(4,1), nrow=2)
+
+# SAVE PDF
+# pdf("Desktop/Figure2b.pdf", width=8, height=4)
+# grid.arrange(p1 + theme(axis.text.x=element_blank(), 
+#                         axis.title.x=element_blank(), plot.margin=unit(c(0.1, 0.2, 0, 1),"cm")),
+#              p4, p3 + theme(legend.position = "null"), 
+#              p2 + theme(axis.text.y=element_blank(), 
+#                         axis.title.y=element_blank(), plot.margin=unit(c(0.2, 0.1, 1.6, 0),"cm")) ,
+#              heights=c(2,5), widths=c(4,1), nrow=2)
+# dev.off() 
+
+# pdf("Desktop/Figure2b_legend.pdf", width=8, height=4)
+# p3
+# dev.off() 
+
+```
+
+```{r Figure2_Graphic_B_extended}
+p1 <- p1 + theme(text = element_text(size = 10))
+
+## Motif strong matches per motif class
+p2 <- ggplot(strong_matches, aes(y=Motif_Name, fill=Motif_type)) + geom_bar()+
+  xlab("Motif matches") + ylab("Motif category") + 
+  theme_classic() +  
+  scale_fill_manual(values=colors_ELMtypes) +
+  scale_x_log10(labels = scales::label_comma()) + 
+  theme(text = element_text(size = 10), legend.position = "null",
+        axis.text = element_text(color = "black"), axis.text.x = element_text(angle = 30, vjust = 1, hjust=1),
+        axis.ticks = element_line(linewidth = 0.5, color = "black"), panel.grid.major.x = element_line(color = "lightgrey",size = 0.1)) +
+  scale_y_discrete(limits=rev)
+p2 + geom_text(stat='count', aes(label=format(after_stat(count), big.mark=",")), vjust=1, hjust=-0.5, size=3) +
+  geom_text(stat='prop', vjust=-0.5, hjust=-0.5, size=3) 
+
+
+matches_grid <- strong_matches %>% count(location, Motif_Name) 
+
+## Motif strong matches per motif class and subcellular location
+p3 <- ggplot(matches_grid, aes(location, Motif_Name, fill=n  )) + geom_tile() +
+  scale_fill_gradient(limits=c(1, 50000), breaks=c(1,100,10000), labels = scales::label_comma(), trans = "log", low = "white", high = "darkblue")+
+  xlab("Subcellular location") + labs(fill = "Match number") +
+  theme_minimal() + 
+  theme(text = element_text(size = 10), panel.grid.major = element_blank(), 
+        axis.text = element_text(color = "black"), panel.grid.minor = element_blank(), 
+        axis.ticks = element_blank(), axis.title.y=element_blank(), axis.title.x =  element_text(hjust=0.3),
+        axis.text.x = element_text(size = 8, angle = 30, vjust = 1, hjust=1), axis.text.y = element_text(size = 4),
+        plot.title = element_blank(), 
+        legend.key.height= unit(1, 'cm'), legend.key.width= unit(1, 'cm'), 
+        legend.title.position="top",legend.direction="horizontal",
+        legend.title = element_text(size=20, hjust=0, vjust=2), 
+        legend.text = element_text(size=12, angle=30, vjust = 1, hjust=1)) +  
+  scale_y_discrete(limits=rev)
+p3
+
+p4 <- ggplot() + theme_void()
+
+grid.arrange(p1 + theme(axis.text.x=element_blank(), 
+                        axis.title.x=element_blank(), plot.margin=unit(c(0.1, 0.2, 0, 1),"cm")),
+             p4, p3 + theme(legend.position = "null"), 
+             p2 + theme(axis.text.y=element_blank(), 
+                        axis.title.y=element_blank(), plot.margin=unit(c(0.2, 0.1, 1.2, 0),"cm")) ,
+             heights=c(1,18), widths=c(5,1), nrow=2)
+
+# SAVE PDF
+# pdf("Desktop/Matrix_extended.pdf", width=8, height=20)
+# grid.arrange(p1 + theme(axis.text.x=element_blank(), 
+#                         axis.title.x=element_blank(), plot.margin=unit(c(0.1, 0.2, 0, 1),"cm")),
+#              p4, p3 + theme(legend.position = "null"), 
+#              p2 + theme(axis.text.y=element_blank(), 
+#                         axis.title.y=element_blank(), plot.margin=unit(c(0.2, 0.1, 1.2, 0),"cm")) ,
+#              heights=c(1,18), widths=c(5,1), nrow=2)
+# dev.off() 
+
+# pdf("Desktop/Figure2b_legend.pdf", width=8, height=4)
+# p3
+# dev.off() 
+
+matches_grid %>% arrange(-n)
+```
+
+```{r SuppFigure1_Graphic_B}
+
+colors_locations_1 <- c("#FED756","#8DB7E2","#70BF4A",rep("lightgrey",15))
+
+## Proteins with strong matches by subcellular location
+p1 <- ggplot(strong_matches %>% select(ToxoDB_ID,location) %>% unique(), 
+             aes(x=location, fill=location)) + geom_bar()+
+  ylab("Protein number") + xlab("Subcellular location") + 
+  theme_classic() +  
+  scale_fill_manual(values=colors_locations_1) +
+  scale_y_log10(labels = scales::label_comma()) + labs(fill = "Location") +
+  theme(text = element_text(size = 12), legend.position = "null",
+        axis.text = element_text(color = "black"), axis.ticks = element_line(linewidth = 0.5, color = "black"), 
+        axis.text.x = element_text(angle = 30, vjust = 1, hjust=1)) 
+p1 + geom_text(stat='count', aes(label=format(after_stat(count), big.mark=",")), vjust=-2, size=3) +
+  geom_text(stat='prop', vjust=-0.25, size=3) 
+
+# pdf("Documents/Cats/Article/Figures/SuppFig1/Protein_location.pdf", width=6, height=2.5)
+# p1
+# dev.off()
+
+## Proteins with strong matches by motif category
+p2 <- ggplot(strong_matches %>% select(ToxoDB_ID,Motif_type) %>% unique(), 
+             aes(y=Motif_type, fill=Motif_type)) + geom_bar()+
+  xlab("Protein number") + ylab("Motif category") + 
+  theme_classic() +  
+  scale_fill_manual(values=colors_ELMtypes) +
+  scale_x_log10(labels = scales::label_comma()) + 
+  theme(text = element_text(size = 12), legend.position = "null",
+        axis.text = element_text(color = "black"), 
+        axis.ticks = element_line(linewidth = 0.5, color = "black")) +
+  scale_y_discrete(limits=rev, labels = rev(elm_categories))
+p2 + geom_text(stat='count', aes(label=format(after_stat(count), big.mark=",")), vjust=1, hjust=-0.5, size=3) +
+  geom_text(stat='prop', vjust=-0.5, hjust=-0.5, size=3) 
+
+
+# pdf("Documents/Cats/Article/Figures/SuppFig1/Protein_types.pdf", width=3, height=2.5)
+# p2
+# dev.off()
+
+strong_matches %>% select(ToxoDB_ID, Motif_type) %>% unique() %>% count(Motif_type)
+strong_matches %>% select(ToxoDB_ID,location) %>% unique() %>% count(location)
+```
+
+```{r Figure2_Graphic_C_D}
+char_pie <- strong_matches %>% select(ToxoDB_ID, characterised) %>% unique() %>% count(characterised)
+
+p1 <- ggplot(char_pie, aes(x="", y=n, fill=as.factor(characterised))) +
+  geom_bar(stat="identity", width=1, color="white") +
+  scale_fill_manual(values=colors_BIN) +
+  coord_polar("y", start=0) + theme_void() + theme(legend.position="none")
+p1
+# #SAVE PDF
+# pdf("Documents/Cats/Article/Figures/Figure_2/characterised_pie.pdf", width=4, height=4)
+# p1
+# dev.off()
+
+
+phospho_pie <- strong_matches %>% filter(phosphorylation==1) %>% count(modifed)
+
+p1 <- ggplot(phospho_pie, aes(x="", y=n, fill=as.factor(modifed))) +
+  geom_bar(stat="identity", width=1, color="white") +
+  scale_fill_manual(values=colors_BIN) +
+  coord_polar("y", start=0) + theme_void() + theme(legend.position="none")
+p1
+# #SAVE PDF
+# pdf("Documents/Cats/Article/Figures/Figure_2/phospho_pie.pdf", width=4, height=4)
+# p1
+# dev.off()
+```
+
+```{r SuppFigure1_Graphic_C_D}
+char_pie_effectors <- strong_matches  %>% mutate(sec_org=case_when(secreted==1 ~ location, TRUE ~ "other")) %>% 
+  select(ToxoDB_ID, characterised, sec_org) %>% unique() %>% count(characterised, sec_org) 
+char_pie_effectors$sec_org <- fct_relevel(char_pie_effectors$sec_org, "Micronemes", "Rhoptries", "Dense granules")
+char_pie_effectors_colors <- c(colors_effectors_white, "lightgrey", colors_effectors, "darkgrey")
+p2 <- ggplot(char_pie_effectors, aes(x="", y=n, fill=interaction(sec_org, characterised))) +
+  geom_bar(stat="identity", width=1, color="white") +
+  scale_fill_manual(values=char_pie_effectors_colors) +
+  coord_polar("y", start=0) + theme_void() + theme(legend.position="none")
+p2
+# #SAVE PDF
+# pdf("Documents/Cats/Article/Figures/SuppFig1/characterised_organelle_pie.pdf", width=4, height=4)
+# p2
+# dev.off()
+
+phospho_pie_classes <- strong_matches %>% filter(phosphorylation==1) %>% count(modifed, Motif_type) 
+phospho_pie_class_colors <- c(colors_ELMtypes_white[2:6], colors_ELMtypes[2:5])
+p2 <- ggplot(phospho_pie_classes, aes(x="", y=n, fill=interaction( Motif_type, modifed))) +
+  geom_bar(stat="identity", width=1, color="white") +
+  scale_fill_manual(values=phospho_pie_class_colors) +
+  coord_polar("y", start=0) + theme_void() + theme(legend.position="none")
+p2
+# #SAVE PDF
+# pdf("Documents/Cats/Article/Figures/SuppFig1/phospho_classes_pie.pdf", width=4, height=4)
+# p2
+# dev.off()
+
+char_pie_effectors_colors <- c(colors_effectors_white,  colors_effectors)
+p3 <- ggplot(char_pie_effectors %>% filter(sec_org!="other"), aes(x="", y=n, fill=interaction(sec_org, characterised))) +
+  geom_bar(stat="identity", width=1, color="white") +
+  scale_fill_manual(values=char_pie_effectors_colors) +
+  coord_polar("y", start=0) + theme_void() + theme(legend.position="none")
+p3
+# #SAVE PDF
+# pdf("Documents/Cats/Article/Figures/Figure_2/characterised_effector_pie.pdf", width=4, height=4)
+# p3
+# dev.off()
+
+
+```
+
+```{r Figure2_Graphic_E}
+sankey_effectors <- strong_matches  %>% filter(secreted==1 ) %>% count(location, Motif_type) 
+sankey_effectors <- sankey_effectors %>% mutate(location=gsub(" ","_",location))
+
+# From these flows we need to create a node data frame: it lists every entities involved in the flow
+nodes <- data.frame(name=c(as.character(sankey_effectors$location), 
+                                        as.character(sankey_effectors$Motif_type)) %>% unique())
+ 
+# With networkD3, connection must be provided using id, not using real name like in the links dataframe.. So we need to reformat it.
+sankey_effectors$IDsource <- match(sankey_effectors$location, nodes$name)-1 
+sankey_effectors$IDtarget <- match(sankey_effectors$Motif_type, nodes$name)-1
+
+my_color <- 'd3.scaleOrdinal() .domain(["Micronemes" , "Rhoptries", "Dense_granules", "CLV", "DEG", "DOC", "LIG", "MOD", "TRG" ]) .range(["#FED756", "#8DB7E2", "#70BF4A","#734595", "#A1BE1F", "#F49E17", "#3B6FB6", "#D41645", "#F4C61F"])'
+
+
+p <- sankeyNetwork(Links = sankey_effectors, 
+              Nodes = nodes,
+              Source = "IDsource", Target = "IDtarget",
+              Value = "n", NodeID = "name", 
+              sinksRight=FALSE, colourScale=my_color,
+              fontFamily = "helvetica", fontSize = 0, 
+              nodeWidth = 150)
+p
+# saveWidget(p, file="Documents/Cats/Article/Figures/Figure_2/effector_sankey.html" )
+
+strong_matches  %>% filter(secreted==1 ) %>% count(location)
+strong_matches  %>% filter(secreted==1 ) %>% count(Motif_type)
+
+```
+
+```{r SuppFigure1_Graphic_E}
+disorder_scores <- read_tsv(file = "/Users/jesusav/Desktop/ToxoDB-68_TgondiiME49_AnnotatedProteins_IUPred3.tsv")
+colnames(disorder_scores) <-c('ID', 'mean_disorder', 'var_disorder', 'std_disorder', 'dis_residues', 'dis_res_ratio')
+disorder_scores <- disorder_scores[,1:6]
+
+disorder_scores <- disorder_scores %>% 
+  mutate(ID=gsub(">","",gsub("(\\..*?$)|(-t.*?$)","",gsub(" \\|.*?$","",ID))))
+
+locations <- read_tsv(file = "/Users/jesusav/Desktop/TgME49_LOPIT_MS_evidence.txt")
+locations <- locations %>% select(Gene_ID, Product_Description,Predicted_Location_TAGM_MAP)
+colnames(locations) <- c("ID", "description", "LOPIT_location")
+
+disorder_scores <- left_join(disorder_scores, locations)
+disorder_scores <- disorder_scores %>% mutate(LOPIT_location=case_when(is.na(LOPIT_location) ~ "undefined", TRUE ~ LOPIT_location))
+disorder_scores$LOPIT_location <- as.factor(disorder_scores$LOPIT_location)
+
+disorder_scores <- disorder_scores %>%
+  mutate(location=gsub("_(1|2)","",LOPIT_location)) %>%
+  mutate(location=gsub("_(soluble|membranes)","",location)) %>%
+  mutate(location=gsub("_(chromatin|non_chromatin)","",location)) %>%
+  mutate(location=gsub("_(integral|peripheral)","",location)) %>%
+  mutate(location=gsub("(19S|20S|40S|60S)_","",location)) %>%
+  mutate(location=as.factor(gsub("_"," ",toTitleCase(location))))
+
+mean(disorder_scores$mean_disorder) #0.5
+
+
+colors_locations_3 <- c(rep("grey",3),"#70BF4A",rep("grey",4),"#FED756",
+                        rep("grey",5),"#8DB7E2",rep("grey",3))
+
+p2 <-ggplot(disorder_scores, 
+            aes(y=mean_disorder, x=reorder(location, -mean_disorder),  color=location)) +
+  geom_quasirandom(alpha=0.75) + geom_boxplot(alpha=0.5, color="black", outlier.size = 0.2) +
+  geom_hline(yintercept = 0.4 , size=0.5, color="red") + 
+  xlab("Subcellular location") + ylab("Protein mean IUPred3") + 
+  theme_classic()  +  
+  scale_color_manual(values=colors_locations_3) +
+  theme(text = element_text(size = 15), axis.text = element_text(color = "black"), 
+        legend.position = "none", plot.title = element_blank(), 
+        axis.ticks = element_line(linewidth = 1),
+        axis.text.x = element_text(angle = 30, vjust = 1, hjust=1))
+p2
+
+# SAVE PDF
+pdf("/Users/jesusav/Desktop/SuppFig1_LOPIT_IUPred3.pdf", width=7, height=4)
+p2
+dev.off()
+
+ggplot(disorder_scores, 
+            aes(y=dis_res_ratio, x=reorder(location, -dis_res_ratio),  color=location)) +
+  geom_quasirandom(alpha=0.75) + geom_boxplot(alpha=0.5, color="black", outlier.size = 0.2) +
+  geom_hline(yintercept = 0.4 , size=0.5, color="red") + 
+  xlab("Subcellular location") + ylab("Residue fraction IUPred3 > 0.4") + 
+  theme_classic()  +  
+  scale_color_manual(values=colors_locations_3) +
+  theme(text = element_text(size = 15), axis.text = element_text(color = "black"), 
+        legend.position = "none", plot.title = element_blank(), 
+        axis.ticks = element_line(linewidth = 1),
+        axis.text.x = element_text(angle = 30, vjust = 1, hjust=1))
+
+```
+
+
+```{r Motif_instances_info}
+val_proteins <- c("TGME49_300100" ,"TGME49_229010","TGME49_311470","TGME49_262730","TGME49_239740","TGME49_208830" ,"TGME49_230180","TGME49_254470" )
+val_motif <- c("LIG_SH3_CIN85_PxpxPR_1","LIG_LYPXL_S_1","LIG_PTAP_UEV_1","TRG_NLS_MonoExtN_4","TRG_Pf-PMV_PEXEL_1","DOC_MAPK_GRA24_9")
+
+strong_matches %>% filter(ToxoDB_ID %in% val_proteins & Motif_Name %in% val_motif) %>% arrange(ToxoDB_ID) %>% select(Description, Motif_Name, Motif_Instance, Match_N, Motif_sSite ) %>% unique()
+
+enriched_matches %>% filter(ToxoDB_ID=="TGME49_311470" & Motif_Name=="LIG_PTAP_UEV_1")
+```
+
+```{r AF_model_selection}
+Class_selection <- c("LIG_TRAF6_MATH_1","LIG_PTAP_UEV_1", "LIG_VCP_SHPBox_1", "LIG_VCP_VIM_2","LIG_SH3_CIN85_PxpxPR_1", "DEG_SPOP_SBC_1", "LIG_LYPXL_S_1", "LIG_Actin_WH2_2","LIG_EF_ALG2_ABM_2")
+Selected_motifs <- strong_matches %>% 
+  filter((!(avg_pLDDT>80) | is.na(avg_pLDDT)) & secreted==1 & Motif_Name %in% Class_selection & LOPIT_location!="micronemes")
+
+Class_selection_MIC <- c("LIG_Integrin_RGD_1", "LIG_Integrin_isoDGR_2")
+strong_matches %>% filter(Motif_Name %in% Class_selection_MIC & LOPIT_location=="micronemes")
+enriched_matches %>% filter(Motif_Name %in% Class_selection_MIC & LOPIT_location=="micronemes")
+strong_matches %>% filter(extracellular==1 & LOPIT_location=="micronemes")
+```
+
+```{r AF_scores}
+model_scores <- read_tsv("/Users/jesusav/Documents/Cats/Article/Data/2025/AF_model_confidence_rank1.tsv")
+model_scores$ELM <- gsub("^.*?_(ELM)","\\1",gsub("_D_.*?$","",model_scores$DMI))
+model_scores <- left_join(model_scores, elm_classes %>% rename(ELM=Motif_Accession) )
+
+model_scores$ToxoDB_ID <- gsub("_ELM.*?$","",gsub("^.*?(TG)","\\1",model_scores$DMI))
+model_scores <- left_join(model_scores, Selected_motifs %>% select(ToxoDB_ID, location, Description) %>% unique())
+model_scores <-  model_scores %>% mutate(organelle=gsub("_[1-2]","", location))
+
+model_scores %>% filter(is.na(Description))
+Selected_motifs %>% filter(ToxoDB_ID=="TGME49_252500")
+
+uniprot_domains <- read_tsv(file="/Users/jesusav/Documents/Cats/Article/Data/2025/UniProt_29072025_domains.tsv")
+
+strong_matches %>% filter(ToxoDB_ID=="TGME49_252500" & Motif_Name=="DEG_SPOP_SBC_1")
+enriched_matches %>% filter(ToxoDB_ID=="TGME49_252500" & Motif_Name=="DEG_SPOP_SBC_1")
+uniprot_domains %>% filter(Gene_Names=="TGME49_252500")
+#TGME49_500314
+enriched_matches %>% filter(ToxoDB_ID=="TGME49_500284" & Motif_Name=="DEG_SPOP_SBC_1")
+strong_matches %>% filter(ToxoDB_ID=="TGME49_500284" & Motif_Name=="DEG_SPOP_SBC_1") #it's not secreted
+#TGME49_500284
+strong_matches %>% filter(ToxoDB_ID=="TGME49_500314" ) # not present in old LOPIT table
+enriched_matches %>% filter(ToxoDB_ID=="TGME49_500314" )
+
+locations <- read_tsv(file = "/Users/jesusav/Desktop/TgME49_LOPIT_MS_evidence.txt")
+locations %>% filter(Gene_ID=="TGME49_500314")
+locations %>% arrange(Product_Description)
+ subset(locations, grepl('phosphatase', Product_Description, ignore.case = TRUE))
+ 
+ 
+ model_scores %>% filter(Motif_Name=="LIG_TRAF6_MATH_1" & ToxoDB_ID=="TGME49_261750")
+ model_scores %>% filter(Motif_Name=="LIG_TRAF6_MATH_1" & ToxoDB_ID=="TGME49_275470")
+```
+
+```{r AF_scores_selection}
+Class_selection <- c("LIG_TRAF6_MATH_1","LIG_PTAP_UEV_1", "LIG_VCP_SHPBox_1","LIG_VCP_VIM_2","LIG_SH3_CIN85_PxpxPR_1", "DEG_SPOP_SBC_1", "LIG_LYPXL_S_1", "LIG_Actin_WH2_2")
+
+model_scores_selection <- model_scores %>% filter(Motif_Name %in% Class_selection & location!="Micronemes") %>% select(-model, -ELM)
+class_alias <- tibble(Motif_Name=Class_selection)
+class_alias$class_alias <- c("TRAF6 motif", "PTAP", "VCP motif", "VCP motif", "PxpxPR", "SPOP", "LYPxL", "Actin WH2")
+
+model_scores_selection <- left_join(model_scores_selection, class_alias)
+model_scores_selection$class_alias <- ordered(model_scores_selection$class_alias, levels = c("LYPxL","PTAP", "Actin WH2", "PxpxPR", "SPOP", "VCP motif", "TRAF6 motif"))
+model_scores_selection$instance <- "0"
+
+p_instances_id <- c("TGME49_300100", "TGME49_229010", "TGME49_311470", "TGME49_262730", "TGME49_239740", "TGME49_208830", "TGME49_230180", "TGME49_254470")
+model_scores_selection %>% 
+  filter(ToxoDB_ID %in% p_instances_id) %>% 
+  filter(Motif_Name %in% c("LIG_SH3_CIN85_PxpxPR_1","LIG_LYPXL_S_1","LIG_PTAP_UEV_1")) %>% 
+  separate(DMI, c("domain", "motif"), sep="\\.") %>% select(motif, Description, Motif_Name) %>% unique()
+
+model_scores_selection %>% separate(DMI, c("domain", "motif"), sep="\\.") %>% select(motif) %>% unique()
+model_scores_selection %>% separate(DMI, c("domain", "motif"), sep="\\.") %>% select(domain) %>% unique()
+
+# Third domain of CIN85 
+model_scores_selection %>% filter(ToxoDB_ID=="TGME49_229010" & Motif_Name=="LIG_LYPXL_S_1")%>% separate(DMI, c("domain", "motif"), sep="\\.") %>% select(motif) %>% unique()
+
+toxo_instances <- c("TGME49_300100_ELME000501_D_54_69", "TGME49_229010_ELME000501_D_110_125", "TGME49_229010_ELME000501_D_126_141", "TGME49_229010_ELME000501_D_255_270", "TGME49_229010_ELME000294_D_165_179", "TGME49_229010_ELME000294_D_294_308", "TGME49_311470_ELME000501_D_91_106", "TGME49_239740_ELME000294_D_389_403", "TGME49_239740_ELME000099_D_378_393")
+toxo_mst <- c("TGME49_275470_ELME000133_D_499_517", "TGME49_203310_ELME000133_D_85_103", "TGME49_261750_ELME000133_D_214_232", "TGME49_297960_ELME000133_D_1284_1302")
+model_scores_selection <- model_scores_selection %>% 
+  separate(DMI, c("domain", "motif"), sep="\\.", remove = F) %>%
+  mutate(instance=case_when(motif %in% toxo_instances ~ 1, motif %in% toxo_mst ~ 2, TRUE ~ 0))  %>%
+  mutate(domain_protein=gsub("_.*?$", "", domain))
+#model_scores_selection <- model_scores_selection %>% mutate(instace=case_match())
+
+model_scores_selection %>% count(instance)
+
+model_scores_selection %>% filter(score>=0.6) 
+
+340/434
+model_scores_selection %>% filter(score>=0.6) %>% select(ToxoDB_ID) %>% unique()
+```
+
+
+
+```{r Figure3_Graphic_A}
+colors_locations_1 <- c("#70BF4A","#87AED3")
+class_labels <- c( "SPOP degron", "PxExxE\n(TRAF6)", "PxpxPR\n(CIN85/CD2AP)",  "PTAP\n(TSG101)", "Actin WH2", "VCP motifs","LYPxL\n(ALIX)")
+
+p1 <- ggplot(model_scores %>% filter(!is.na(location)), aes(y=Motif_Name, fill=location)) + geom_bar() + 
+  theme_classic() +
+  theme(text = element_text(size = 12), axis.text = element_text(color = "black"), 
+        legend.position = "none", plot.title = element_blank(), 
+        axis.ticks = element_line(linewidth = 1))
+p1
+
+p1 <- ggplot(model_scores_selection %>% filter(!is.na(location)), 
+             aes(y=fct_rev(fct_infreq(class_alias)), fill=location)) + geom_bar(color="black", size=0.25) + 
+  xlab("DMI number") + theme_classic() +
+  scale_fill_manual(values=colors_locations_1) +
+  theme(text = element_text(size = 15), axis.text = element_text(color = "black"), 
+        legend.position = "none", plot.title = element_blank(), 
+        axis.ticks = element_line(linewidth = 1), axis.title.y = element_blank())+
+  scale_y_discrete(labels = rev(class_labels)) +
+  scale_x_continuous(breaks = scales::pretty_breaks(n = 2))
+p1+ geom_text(stat='count', aes(label=format(after_stat(count), big.mark=",")), vjust=1, hjust=-0.5, size=3) +
+  geom_text(stat='prop', vjust=-0.5, hjust=-0.5, size=3) 
+
+model_scores_selection %>% filter(!is.na(location))  %>% count(class_alias)
+#SAVE PDF
+# pdf("Documents/Cats/Article/Figures/Figure_3/AF_selection.pdf", width=2.5, height=3.5)
+# p1
+# dev.off()
+
+model_scores_selection_ppi <- model_scores_selection %>% filter(!is.na(location)) %>% select(domain_protein, ToxoDB_ID, class_alias, location) %>% unique()
+class_order <- model_scores_selection %>% count(class_alias) %>% arrange(-n ) %>% select(class_alias) %>% unlist()
+model_scores_selection_ppi$class_alias <- ordered(model_scores_selection_ppi$class_alias, levels = class_order)
+
+p2 <- ggplot(model_scores_selection_ppi,  aes(y=class_alias, fill=location)) + geom_bar(color="black", size=0.25) + 
+  xlab("PPI number") + theme_classic() +
+  scale_fill_manual(values=colors_locations_1) +
+  theme(text = element_text(size = 15), axis.text = element_text(color = "black"), 
+        legend.position = "none", plot.title = element_blank(), 
+        axis.ticks = element_line(linewidth = 1), axis.title.y = element_blank())+
+  scale_y_discrete(limits=rev, labels = rev(class_labels))+
+  scale_x_continuous(breaks = scales::pretty_breaks(n = 2))
+p2+ geom_text(stat='count', aes(label=format(after_stat(count), big.mark=",")), vjust=1, hjust=-0.5, size=3) +
+  geom_text(stat='prop', vjust=-0.5, hjust=-0.5, size=3) 
+
+model_scores_selection %>% filter(!is.na(location)) %>% select(domain_protein, ToxoDB_ID, class_alias, location) %>% unique() %>% count(class_alias)
+
+#SAVE PDF
+# pdf("Documents/Cats/Article/Figures/Figure_3/AF_selection_PPI.pdf", width=2.5, height=3.5)
+# p2
+# dev.off()
+```
+
+```{r Figure3_Graphic_B}
+class_labels <- c("LYPxL\n(ALIX)",  "PxExxE\n(TRAF6)", "SPOP\ndegron", "PTAP\n(TSG101)", "Actin\nWH2", "PxpxPR\n(CIN85/CD2AP)", "VCP\nmotifs")
+
+p1 <- ggplot(model_scores, aes(x=reorder(Motif_Name, -score), y=score)) + geom_quasirandom() + 
+  geom_boxplot(alpha=0.2) + 
+  geom_hline(yintercept = 0.6 , size=0.5, color="red") + 
+  xlab("Motif name") + ylab("Model confidence") + 
+  theme_classic() +
+  theme(text = element_text(size = 15), axis.text = element_text(color = "black"), 
+        legend.position = "none", plot.title = element_blank(), 
+        axis.ticks = element_line(linewidth = 1), axis.text.x = element_text(angle = 30, vjust = 1, hjust=1))
+p1
+
+p2 <- ggplot(model_scores_selection %>% filter(!is.na(location)) , 
+             aes(x=reorder(as.factor(class_alias), -score), y=score)) + 
+  geom_quasirandom(data=model_scores_selection %>% filter(instance!="2"), aes(color=as.factor(instance))) +
+  geom_quasirandom(data=model_scores_selection %>% filter(instance=="2"), aes(color=as.factor(instance))) + 
+  geom_boxplot(size=0.5, alpha=0.2, outlier.size = 0.2) + 
+  geom_hline(yintercept = 0.6 , size=0.5, color="red") + 
+  xlab("Motif name") + ylab("Model confidence") + 
+  theme_classic()  +
+  scale_color_manual(values=c("darkgrey","red", "green")) +
+  theme(text = element_text(size = 15), axis.text = element_text(color = "black"), 
+        plot.title = element_blank(), axis.text.x = element_text(angle = 30, vjust = 1, hjust=1),
+        axis.ticks = element_line(linewidth = 1), legend.position = "null", axis.title.x = element_blank()) +
+  scale_x_discrete(labels = class_labels)
+
+p2
+#SAVE PDF
+# pdf("Documents/Cats/Article/Figures/Figure_3/AF_models.pdf", width=5.5, height=3.5)
+# p2
+# dev.off()
+
+p2 <- ggplot(model_scores_selection %>% filter(!is.na(location)), 
+             aes(x=reorder(as.factor(class_alias), -score), y=score)) + 
+  geom_quasirandom(aes(color=organelle, shape=organelle)) + 
+  geom_boxplot(size=0.5, alpha=0.2, outlier.size = 0.2) + 
+  geom_hline(yintercept = 0.6 , size=0.5, color="red") + 
+  xlab("Motif name") + ylab("Model confidence") + 
+  theme_classic() +
+  scale_color_manual(values=colors_locations_1) +
+  theme(text = element_text(size = 15), axis.text = element_text(color = "black"), 
+        plot.title = element_blank(), axis.text.x = element_text(angle = 30, vjust = 1, hjust=1),
+        axis.ticks = element_line(linewidth = 1), legend.position = "null", axis.title.x = element_blank()) +
+  scale_x_discrete(labels = class_labels)
+
+p2
+# #SAVE PDF
+# pdf("Documents/Cats/Article/Figures/Figure_3/AF_models.pdf", width=6, height=3.5)
+# p2
+# dev.off()
+```
+
+
+```{r Motif_examples}
+model_scores_selection %>% select(location) %>% unique()
+model_scores_selection %>% filter(instance=="2") %>% select(motif, Description, score)
+
+model_scores_selection %>% filter(class_alias=="VCP motif") %>% select(motif, Description, score) %>% arrange(-score)
+model_scores_selection %>% filter(class_alias=="Actin WH2") %>% select(motif, Description, score) %>% arrange(-score)
+model_scores_selection %>% filter(Motif_Name=="LIG_TRAF6_MATH_1") %>% select(ToxoDB_ID, Description) %>% unique() 
+model_scores_selection %>% filter(Motif_Name=="LIG_TRAF6_MATH_1" & ToxoDB_ID=="TGME49_297960")  
+strong_matches %>% filter(Motif_Name=="LIG_TRAF6_MATH_1" & ToxoDB_ID=="TGME49_275470")
+
+
+model_scores_selection %>% filter(Motif_Name=="DEG_SPOP_SBC_1") %>% count(ToxoDB_ID, Description) %>% arrange(-n)
+strong_matches %>% filter(ToxoDB_ID=="TGME49_206510") %>% count(Motif_Name) %>% arrange(-n)
+
+strong_matches %>% filter(Motif_Name=="DEG_SPOP_SBC_1" & ToxoDB_ID %in% model_scores_selection$ToxoDB_ID) %>% arrange(Motif_Instance)
+strong_matches %>% filter(Motif_Name=="DEG_SPOP_SBC_1" & ToxoDB_ID %in% model_scores_selection$ToxoDB_ID) %>% select(ToxoDB_ID) %>% unique()
+
+model_scores_selection %>% filter(Motif_Name=="DEG_SPOP_SBC_1" & score>=0.6) 
+model_scores_selection %>% filter(Motif_Name=="DEG_SPOP_SBC_1" & score>=0.6)  %>% count(ToxoDB_ID, Description) %>% arrange(-n)
+
+strong_matches %>% filter(Motif_Name=="DEG_SPOP_SBC_1" & ToxoDB_ID=="TGME49_269885") 
+strong_matches %>% filter(ToxoDB_ID=="TGME49_269885") %>% select(Description, location) %>% unique()
+
+# Toxofilin
+enriched_matches %>% filter(ToxoDB_ID=="TGME49_214080") 
+
+# Toxofilin
+model_scores_selection %>% filter(Motif_Name %in% c("LIG_VCP_SHPBox_1", "LIG_VCP_VIM_2") & score>=0.6) 
+# GRA16 and GRA25
+model_scores_selection %>% filter(Motif_Name %in% c("LIG_VCP_SHPBox_1", "LIG_VCP_VIM_2") & ToxoDB_ID=="TGME49_290700")
+strong_matches %>% filter(ToxoDB_ID=="TGME49_290700")
+strong_matches %>% filter(ToxoDB_ID=="TGME49_290700" & Motif_type=="DEG") %>% arrange(Motif_eSite)
+
+model_scores_selection %>% filter(Motif_Name=="DEG_SPOP_SBC_1" & ToxoDB_ID=="TGME49_290700")
+
+strong_matches %>% filter(Motif_Name=="TRG_ER_FFAT_1" & secreted==1) 
+strong_matches %>% filter(Motif_Name=="TRG_ER_FFAT_2" & secreted==1) 
+
+```
+
+```{r SuppFigure2_Graphic_A}
+model_scores_pxpxpr <- model_scores_selection %>% filter(!is.na(location) & Motif_Name=="LIG_SH3_CIN85_PxpxPR_1" )
+domain_labels <- model_scores_pxpxpr %>% select(domain) %>% unique()
+domain_labels$domain_label <- c("CD2AP 1-59","CD2AP 108-167","CD2AP 269-330","CIN85 1-58","CIN85 98-157","CIN85 267-328")
+
+motif_labels <- model_scores_pxpxpr %>% select(ToxoDB_ID, motif, Description) %>% unique()
+motif_labels <- motif_labels %>% 
+  mutate(Description=gsub("dense granule  ","",gsub("rhoptry neck  ","",gsub("protein","",gsub("phosphatase ","",Description))))) %>%
+  mutate(Description=case_when(Description=="hypothetical " ~ ToxoDB_ID, ToxoDB_ID=="TGME49_240060" ~ "STAT1", ToxoDB_ID=="TGME49_247520" ~ "WIP", 
+                               ToxoDB_ID=="TGME49_270200" ~ "transporter",ToxoDB_ID=="TGME49_305590" ~ "ABC trans.", 
+                               ToxoDB_ID=="TGME49_250955" ~ "KRUF protein", TRUE ~ Description)) %>%
+  mutate(position=gsub("_","-",gsub("^.*?_D_","",motif))) %>% mutate(motif_label=paste(Description, position)) %>% select(motif, motif_label)
+
+model_scores_pxpxpr <- left_join(left_join(model_scores_pxpxpr, domain_labels), motif_labels)
+
+
+p1 <- ggplot(model_scores_pxpxpr,aes(x=reorder(as.factor(domain_label), -score), y=score)) + 
+  geom_quasirandom(aes(color=as.factor(instance))) + 
+  geom_boxplot(size=0.5, alpha=0.2, outlier.size = 0.2) + 
+  geom_hline(yintercept = 0.6 , size=0.5, color="red") + 
+  xlab("Motif name") + ylab("Model confidence") + 
+  theme_classic()  +
+  scale_color_manual(values=c("darkgrey","red")) +
+  theme(text = element_text(size = 14), axis.text = element_text(color = "black"), 
+        plot.title = element_blank(), axis.text.x = element_text(angle = 30, vjust = 0.8, hjust=0.8),
+        axis.ticks = element_line(linewidth = 1), legend.position = "null", axis.title.x = element_blank()) 
+
+p1
+#SAVE PDF
+# pdf("Documents/Cats/Article/Figures/SuppFig2/PxPxPR_domain.pdf", width=3.5, height=3.5)
+# p1
+# dev.off()
+
+p2 <- ggplot(model_scores_pxpxpr, aes(x=reorder(as.factor(motif_label), -score), y=score)) + 
+  geom_quasirandom(aes(color=as.factor(instance))) + 
+  geom_boxplot(size=0.5, alpha=0.2, outlier.size = 0.2) + 
+  geom_hline(yintercept = 0.6 , size=0.5, color="red") + 
+  xlab("Motif name") + ylab("Model confidence") + 
+  theme_classic()  +
+  scale_color_manual(values=c("darkgrey","red")) +
+  theme(text = element_text(size = 12), axis.text = element_text(color = "black"), 
+        plot.title = element_blank(), axis.text.x = element_text(angle = 30, vjust = 1, hjust=1),
+        axis.ticks = element_line(linewidth = 1), legend.position = "null", axis.title.x = element_blank()) 
+
+p2
+
+#SAVE PDF
+# pdf("Documents/Cats/Article/Figures/SuppFig2/PxPxPR_motif.pdf", width=7, height=3.5)
+# p2
+# dev.off()
+
+```
+
+```{r examples}
+
+```

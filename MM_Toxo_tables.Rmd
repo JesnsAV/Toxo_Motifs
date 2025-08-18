@@ -1,0 +1,206 @@
+---
+title: "ToxoDB_tables"
+author: "JesusAV"
+date: "2025-07-29"
+output: html_document
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = T, message = F, warning = F)
+```
+
+```{r Packages, echo=F}
+library(tidyverse)
+library(gridExtra)
+library(knitr) 
+library(dplyr)
+library(ggstats)
+library(ggplot2)
+library(ggbeeswarm)
+library(corrplot)
+library(colorspace)
+
+```
+
+
+```{r raw_table}
+raw_matches <- read_tsv(file="/Users/jesusav/Desktop/July2025_MotifMatches_list.txt")
+raw_matches
+raw_matches %>% select(Protein_ID) %>% unique() %>% nrow() # 8,204
+
+raw_matches <- raw_matches %>% mutate(ToxoDB_ID = gsub("(\\.|-).*?$","",Protein_ID)) %>% mutate(Motif_type = gsub("_.*?$","",Motif_Name))
+raw_matches %>% select(ToxoDB_ID) %>% unique() %>% nrow()  # 8,140
+
+raw_matches <- raw_matches %>% mutate(Motif_eSite=Motif_sSite+nchar(Motif_Instance))
+raw_matches <- raw_matches %>% mutate(Motif_sSite=Motif_sSite+1)
+raw_matches <- raw_matches %>% mutate(Protein_ID=gsub("-p1$","",Protein_ID))
+```
+
+
+```{r PTM_raw_table}
+phosphosites_raw <- read_tsv(file="/Users/jesusav/Documents/Cats/Article/Data/2025/ToxoDB_29072025_Phosphosites_raw.txt")
+colnames(phosphosites_raw) <- c("Gene_ID","source_id", "Modified_Residues","Total_Modified_Residues", "Total_Modifications_By_Type")
+phosphosites_raw <- phosphosites_raw %>% select(-Total_Modifications_By_Type)
+phosphosites_raw <- phosphosites_raw %>% mutate(strain=gsub("_.*?$", "", Gene_ID)) %>% filter(strain!="TGGT1") %>% select(-strain)
+
+max(phosphosites_raw$Total_Modified_Residues)
+phosphosites <- phosphosites_raw %>% select(-Total_Modified_Residues) %>% separate_rows(Modified_Residues, sep = ",")
+phosphosites <- phosphosites %>% separate(Modified_Residues, c("aa_res", "aa_pos"), sep=":")
+#write_tsv(phosphosites, file="/Users/jesusav/Documents/Cats/Article/Data/2025/ToxoDB_29072025_Phosphosites.tsv")
+
+```
+
+
+```{r phosphosites_survey}
+phosphosites <- read_tsv(file="/Users/jesusav/Documents/Cats/Article/Data/2025/ToxoDB_29072025_Phosphosites.tsv")
+
+matches_phosphosite_survey <- raw_matches %>% filter(ToxoDB_ID %in% phosphosites$Gene_ID) %>% 
+  select(ToxoDB_ID, Motif_Name, Match_N, Motif_Instance, Motif_sSite) %>%
+  mutate(Motif_eSite=Motif_sSite+nchar(Motif_Instance)-1)
+matches_phosphosite_protein <- matches_phosphosite_survey %>% select(ToxoDB_ID) %>% unique()
+
+matches_phosphosite <- matches_phosphosite_survey[0,]
+matches_phosphosite$Modification_n <- ""
+for(i in 1:nrow(matches_phosphosite_protein)){
+  matches_phosphosite_sample <- matches_phosphosite_survey %>% filter(ToxoDB_ID==unlist(matches_phosphosite_protein[i,1]))
+  phosphosites_sample <-  phosphosites %>% filter(Gene_ID==unlist(matches_phosphosite_protein[i,1]))
+  matches_phosphosite_sample$Modification_n <- 0
+  
+  for(j in 1:nrow(matches_phosphosite_sample)){
+    matches_phosphosite_sample[j,7] <- phosphosites_sample %>% 
+      filter(Gene_ID==unlist(matches_phosphosite_sample[j,1]) & 
+               aa_pos >= unlist(matches_phosphosite_sample[j,5]) &
+               aa_pos <= unlist(matches_phosphosite_sample[j,6])) %>% nrow()
+  }
+  
+  matches_phosphosite <- rbind(matches_phosphosite, matches_phosphosite_sample)
+  
+}
+
+matches_phosphosite <- matches_phosphosite %>% filter(Modification_n>0)
+
+#write_tsv(matches_phosphosite, file="/Users/jesusav/Desktop/July2025_MotifMatches_phosphosites.tsv")
+
+
+```
+
+
+```{r UniProt_domains_raw_table}
+uniprot_domains_raw <- read_tsv(file="/Users/jesusav/Documents/Cats/Article/Data/2025/uniprotkb_taxonomy_id_508771_2025_07_29.tsv")
+colnames(uniprot_domains_raw) <- gsub(" ", "_", colnames(uniprot_domains_raw))
+
+uniprot_domains <- uniprot_domains_raw %>% rename(Domain=`Domain_[FT]`) %>% filter(!is.na(Domain))
+uniprot_domains <- uniprot_domains %>% separate_rows(Domain, sep = "; DOMAIN ") %>% mutate(Domain=gsub("DOMAIN ","", Domain))
+uniprot_domains <- uniprot_domains %>% separate(Domain, c("range", "note", "evidence"), sep="; /")
+uniprot_domains <- uniprot_domains %>% mutate(note=gsub("note=","",gsub("\"", "",note)), evidence=gsub("evidence=.*?\\|","",gsub("\"", "",evidence)))
+uniprot_domains <- uniprot_domains %>% mutate(note=gsub("note=","",gsub("\"", "",note)), evidence=gsub("evidence=.*?\\|","",gsub("\"", "",evidence)))
+uniprot_domains <- uniprot_domains %>% mutate(range=gsub("\\.\\.","-",range), Gene_Names=gsub("^.*?(TGME49)","\\1",Gene_Names))
+uniprot_domains <- uniprot_domains %>% separate_rows(Gene_Names, sep = " ")
+
+#write_tsv(uniprot_domains %>% select(-Protein_names), file="/Users/jesusav/Documents/Cats/Article/Data/2025/UniProt_29072025_domains.tsv")
+```
+
+
+```{r domains_survey}
+#uniprot_domains <- read_tsv(file="/Users/jesusav/Documents/Cats/Article/Data/2025/UniProt_29072025_domains.tsv")
+
+domains <- uniprot_domains %>% select(Gene_Names, Entry, note, range)
+domains <- domains %>% separate(range, c("sDomain","eDomain"), sep="-", convert = T)
+
+matches_domain_survey <- raw_matches %>% filter(ToxoDB_ID %in% uniprot_domains$Gene_Names) %>% 
+  select(ToxoDB_ID, Motif_Name, Match_N, Motif_Instance, Motif_sSite) %>%
+  mutate(Motif_eSite=Motif_sSite+nchar(Motif_Instance)-1)
+matches_domain_protein <- matches_domain_survey %>% select(ToxoDB_ID) %>% unique()
+
+matches_domains <- left_join(matches_domain_survey, domains %>% rename(ToxoDB_ID=Gene_Names))
+matches_domains$Domain_n <- 1*with(matches_domains, (
+                                 (Motif_sSite >= sDomain & Motif_sSite <= eDomain ) |
+                                   (Motif_eSite >= sDomain & Motif_eSite <= eDomain) ))
+
+matches_domains$Domain_n1 <- 1*with(matches_domains,   (Motif_sSite >= sDomain & Motif_sSite <= eDomain )  )
+
+matches_domains <- matches_domains %>% select(-Entry, -note ) %>% group_by(ToxoDB_ID, Motif_Name, Motif_Instance, Match_N, Motif_sSite, Motif_eSite) %>% summarise(Domain_overlap=sum(Domain_n)) %>% ungroup()
+
+matches_domains <- matches_domains %>% filter(Domain_overlap>0)
+
+#write_tsv(matches_domains, file="/Users/jesusav/Desktop/July2025_MotifMatches_domains.tsv")
+
+
+```
+
+```{r raw_pLDDT}
+uniprot_ids <- read_tsv(file="/Users/jesusav/Documents/Cats/Article/Data/2025/Genes_UniProt.txt") 
+colnames(uniprot_ids) <- c("ToxoDB_ID", "Protein_ID", "Description", "UPID") 
+uniprot_ids <- uniprot_ids %>% separate_rows(UPID, sep=",") %>% rename(UniProt_ID=UPID)%>% filter(!is.na(UniProt_ID))
+
+
+pLDDT_values <- read_table(file="/Users/jesusav/Documents/Cats/Article/Data/2025/all_models_pLDDT_values.txt", col_names = c("File", "AA", "Chain", "residue_n","plDDT")) 
+pLDDT_values <- pLDDT_values %>% mutate(UniProt_ID=gsub("-.*$","",gsub("AF-", "",File))) %>% select(-File, -Chain)
+pLDDT_values <- left_join(pLDDT_values, uniprot_ids %>% select(-Description))
+pLDDT_values <- pLDDT_values %>% mutate(Protein_ID=gsub("\\.R",".P",Protein_ID)) 
+
+
+matches_pLDDT <- raw_matches  %>% select(Protein_ID, Motif_Name,Motif_sSite, Motif_eSite) %>% mutate(avg_pLDDT=NA)
+matches_pLDDT <- matches_pLDDT %>% mutate(Protein_ID=gsub("-p1","",Protein_ID))
+
+proteins_ID <- pLDDT_values %>% filter(!is.na(Protein_ID)) %>% select(Protein_ID) %>% unique() %>% unlist() %>% as.vector()
+matches_pLDDT_all <- matches_pLDDT[0,]
+for(i in 1:length(proteins_ID)){
+  protein_motifs <- matches_pLDDT %>% filter(Protein_ID==proteins_ID[i])
+  protein_pLDDTs <- pLDDT_values %>% filter(Protein_ID==proteins_ID[i])
+  for(j in 1:nrow(protein_motifs)){
+     protein_motifs[j,5] <- protein_pLDDTs %>% filter(residue_n>=unlist(protein_motifs[j,3]) & residue_n<= unlist(protein_motifs[j,4])) %>% select(plDDT) %>% unlist() %>% mean()
+  }
+  matches_pLDDT_all <- rbind(matches_pLDDT_all, protein_motifs)
+}
+
+#write_tsv(matches_pLDDT_all, file="/Users/jesusav/Desktop/ToxoME49_69.ELM2025_MotifMatches_pLDDT.tsv")
+#write_tsv(matches_pLDDT_all, file="/Users/jesusav/Desktop/July2025_MotifMatches_pLDDT.tsv")
+matches_pLDDT_all <- read_tsv(file="/Users/jesusav/Documents/Cats/Article/Data/2025/ToxoME49_69.ELM2025_MotifMatches_pLDDT.tsv")
+
+
+```
+
+
+```{r dssp_accessibility}
+
+Accessibility_map <- c(
+  A=129, R=274, N=195, D=193, C=167,
+  E=223, Q=225, G=104, H=224, I=197,
+  L=201, K=236, M=224, F=240, P=159,
+  S=155, T=172, W=285, Y=263, V=174
+)
+
+dssp_values <- read_table(file="/Users/jesusav/Documents/Cats/Article/Data/2025/all_model_dssp_values.txt", col_names = c("File", "residue_n", "Chain", "AA","total_accessibility")) 
+dssp_values <- dssp_values %>% mutate(UniProt_ID=gsub("-.*$","",gsub("AF-", "",File))) %>% select(-File, -Chain)
+dssp_values <- left_join(dssp_values, uniprot_ids %>% select(-Description))
+dssp_values <- dssp_values %>% mutate(Protein_ID=gsub("\\.R",".P",Protein_ID)) 
+dssp_values <- dssp_values %>% mutate(norm_accessibility=(total_accessibility/Accessibility_map[AA]))
+
+
+
+matches_acc <- raw_matches  %>% select(Protein_ID, Motif_Name,Motif_sSite, Motif_eSite) %>% mutate(avg_RSA=NA)
+matches_acc <- matches_acc %>% mutate(Protein_ID=gsub("-p1","",Protein_ID))
+
+proteins_ID <- dssp_values %>% filter(!is.na(Protein_ID)) %>% select(Protein_ID) %>% unique() %>% unlist() %>% as.vector()
+matches_acc_all <- matches_acc[0,]
+
+for(i in 1:length(proteins_ID)){
+  protein_motifs <- matches_acc %>% filter(Protein_ID==proteins_ID[i])
+  protein_accs <- dssp_values %>% filter(Protein_ID==proteins_ID[i])
+  for(j in 1:nrow(protein_motifs)){
+     protein_motifs[j,5] <- protein_accs %>% 
+       filter(residue_n>=unlist(protein_motifs[j,3]) & residue_n<= unlist(protein_motifs[j,4])) %>% 
+       select(norm_accessibility) %>% unlist() %>% mean()
+  }
+  matches_acc_all <- rbind(matches_acc_all, protein_motifs)
+}
+
+
+#write_tsv(matches_acc_all, file="/Users/jesusav/Desktop/July2025_MotifMatches_RSA.tsv")
+matches_acc_all <- read_tsv(file="/Users/jesusav/Documents/Cats/Article/Data/2025/July2025_MotifMatches_RSA.tsv")
+
+
+```
+```{r raw_table}
+
+```
