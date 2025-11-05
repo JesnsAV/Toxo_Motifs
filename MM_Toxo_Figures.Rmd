@@ -1,0 +1,469 @@
+---
+title: "Toxo_motif_analysis"
+author: "JesusAV"
+date: "2025-07-29"
+output: html_document
+---
+```{r Packages, echo=F}
+library(tidyverse)
+library(gridExtra)
+library(knitr) 
+library(dplyr)
+library(ggstats)
+library(ggplot2)
+library(colorspace)
+library(tools)
+library(ggh4x)
+library(scales)
+library(cowplot)
+```
+
+```{r Palettes}
+colors_Var <-c("#56B4E9","#E69F00","#d52221","#999999")
+colors_BIN <- c("darkgrey","#006AB4")
+colors_DMI <- c("darkgrey","#18974C")
+colors_blues <- c("#CADCE8","#66A9D6","#4E93C1","#006AB4","#00548C")
+colors_ELMtypes <- c("#734595","#A1BE1F","#F49E17","#3B6FB6","#D41645","#F4C61F")
+colors_ELMtypes_grey <-c("#A599B1", "#B9C191", "#CEB78E", "#97A5BC", "#BF8B98","#D0C492")
+colors_ELMtypes_white <-c("#CCC1D9", "#E1E9B8", "#F6DFB5", "#BFCDE4", "#E6B3C0","#F8EDB9")
+colors_effectors <- c("#FED756","#8DB7E2","#70BF4A")
+colors_effectors_white <- c("#FDF2CB","#DBE7F4","#D3E8C4")
+# https://www.datanovia.com/en/blog/awesome-list-of-657-r-color-names/
+
+elm_categories <- c("Cleavage", "Degrons","Subst. recog.", "Scaffolding", "PTM sites", "Localization")
+```
+
+```{r Motif_datasets}
+## All matches info 
+enriched_matches <- read_tsv(file="/Users/jesusav/Documents/Cats/Article/Data/2025/July2025/July2025_MotifMatches_enriched.txt")
+## Stronger matches 
+strong_matches <- read_tsv(file="/Users/jesusav/Documents/Cats/Article/Data/2025/July2025/July2025_MotifMatches_filtered.txt")
+
+strong_matches <- strong_matches %>% mutate(location=as.factor(gsub("_"," ",toTitleCase(location))))
+strong_matches$location <- fct_relevel(strong_matches$location, "Micronemes", "Rhoptries", "Dense granules")
+
+strong_matches <- strong_matches %>% mutate(characterised=case_when(Description=="hypothetical protein" | Description=="hypothetical protein, conserved" |is.na(Description)  ~ 0, TRUE ~ 1))
+
+strong_matches <- strong_matches %>% mutate(modified=case_when(phosphorylation==1 & Modification_n > 0   ~ 1, TRUE ~ 0)) 
+strong_matches <- strong_matches %>% mutate(extracellular=case_when(Motif_Name=="TRG_Pf-PMV_PEXEL_1" ~ 2, Motif_Name=="MOD_N-GLC_1" ~ 2, TRUE ~ extracellular))
+
+elm_classes <-  read_tsv(file="/Users/jesusav/Documents/Cats/Article/Data/2025/elm_classes_April25.tsv", col_names = F)
+elm_classes <- elm_classes %>% select(X1, X6) %>% rename(Motif_Name=X1, Motif_Accession=X6)
+
+## Stronger matches from secreted proteins 
+strong_matches_sec <- strong_matches %>% filter((secreted==1 & location!="Micronemes" & extracellular!=1) | (secreted==1 & location=="Micronemes" ))
+#write_tsv(strong_matches_sec, "/Users/jesusav/Documents/Cats/Article/Supp_Table1.tsv")
+```
+
+
+```{r Figure3_Graphic_A}
+
+## Motif strong matches per subcellular location
+p1 <- ggplot(strong_matches_sec, aes(x=location, fill=location)) + geom_bar()+
+  ylab("Motif\nmatches") + xlab("Subcellular location") + 
+  theme_classic() +  
+  scale_fill_manual(values=colors_effectors) + labs(fill = "Location") +
+  theme(text = element_text(size = 12), legend.position = "null",
+        axis.text = element_text(color = "black"), axis.ticks = element_line(linewidth = 0.5, color = "black"), 
+        axis.text.x = element_text(angle = 30, vjust = 1, hjust=1)) + 
+ scale_y_continuous(labels = scales::comma, breaks = scales::pretty_breaks(n = 3)) 
+p1 + geom_text(stat='count', aes(label=format(after_stat(count), big.mark=",")), vjust=-2, size=3) +
+  geom_text(stat='prop', vjust=-0.25, size=3) 
+
+## Motif strong matches per motif category
+p2 <- ggplot(strong_matches_sec, aes(y=fct_infreq(Motif_type), fill=Motif_type)) + geom_bar()+
+  xlab("Motif matches") + ylab("Motif category") + 
+  theme_classic() +  
+  scale_fill_manual(values=colors_ELMtypes) +
+  theme(text = element_text(size = 12), legend.position = "null",
+        axis.text = element_text(color = "black"), axis.text.x = element_text(angle = 30, vjust = 1, hjust=1),
+        axis.ticks = element_line(linewidth = 0.5, color = "black")) +
+  scale_y_discrete(labels = c( "PTM sites", "Scaffolding", "Subst. recog.","Cleavage","Localization","Degrons"))+ 
+ scale_x_continuous(labels = scales::comma, limits = c(0,13000), breaks = scales::pretty_breaks(n = 3)) 
+p2 + geom_text(stat='count', aes(label=format(after_stat(count), big.mark=",")), vjust=1, hjust=-0.5, size=3) +
+  geom_text(stat='prop', vjust=-0.5, hjust=-0.5, size=3) 
+
+matches_grid <- strong_matches_sec %>% count(location, Motif_type) # Motif match matrix
+matches_grid$Motif_type <- fct_relevel(matches_grid$Motif_type, 
+                                       strong_matches %>% filter(secreted=="1") %>% count(Motif_type) %>% arrange(-n) %>% select(Motif_type) %>% unlist())
+
+## Motif strong matches per motif category and subcellular location
+
+matches_grid$Motif_type <- with(matches_grid,factor(Motif_type,levels =  c("MOD", "LIG", "DOC", "TRG", "CLV","DEG")))
+p3 <- ggplot(matches_grid, aes(location, Motif_type, fill=n  )) + geom_tile(color = "white", lwd = 0.5) +
+  scale_fill_gradient( labels = scales::label_comma(), low = "white", high = "blue")+
+  labs(fill = "Match number") +
+  theme_minimal() + 
+  theme(text = element_text(size = 18), panel.grid.major = element_blank(), 
+        axis.text = element_text(color = "black"), panel.grid.minor = element_blank(), 
+        axis.ticks = element_blank(), axis.title.y=element_blank(), axis.title.x =  element_blank(),
+        axis.text.x = element_text(size = 12, angle = 30, vjust = 1, hjust=1), plot.title = element_blank(), 
+        legend.key.height= unit(1, 'cm'), legend.key.width= unit(1, 'cm'), 
+        legend.title.position="top",legend.direction="horizontal",
+        legend.title = element_text(size=20, hjust=0, vjust=2), 
+        legend.text = element_text(size=12, angle=30, vjust = 1, hjust=1)) +
+  scale_y_discrete(labels = c("PTM sites", "Scaffolding", "Subst. recog.","Localization","Cleavage","Degrons"))
+p3
+p4 <- ggplot() + theme_void()
+
+grid.arrange(p1 + theme(axis.text.x=element_blank(), 
+                        axis.title.x=element_blank(), plot.margin=unit(c(0.5, 0.3, 0, 1.2),"cm")),
+             p4, p3 + theme(legend.position = "null"), 
+             p2 + theme(axis.text.y=element_blank(), 
+                        axis.title.y=element_blank(), plot.margin=unit(c(0.2, 0.1, 0.4, -0.2),"cm")) ,
+             heights=c(1,2), widths=c(2,1), nrow=2)
+
+
+#SAVE PDF
+# pdf("/Users/jesusav/Documents/Cats/Article/Figures/Figure_2/Figure2b_secreted.pdf", width=4, height=4)
+# grid.arrange(p1 + theme(axis.text.x=element_blank(),
+#                         axis.title.x=element_blank(), plot.margin=unit(c(0.4, 0.3, 0, 1.2),"cm")),
+#              p4, p3 + theme(legend.position = "null"),
+#              p2 + theme(axis.text.y=element_blank(),
+#                         axis.title.y=element_blank(), plot.margin=unit(c(0.2, 0.1, 0.4, -0.2),"cm")) ,
+#              heights=c(1,2), widths=c(2,1), nrow=2)
+# dev.off()
+
+pdf("/Users/jesusav/Desktop/Figure2b_legend.pdf", width=4, height=4)
+p3
+dev.off()
+
+p5 <- ggplot(strong_matches_sec %>% select(ToxoDB_ID, location) %>% unique(), 
+             aes(x=location, fill=location)) + geom_bar()+
+  ylab("Protein\nnumber") + xlab("Subcellular location") + 
+  theme_classic() +  
+  scale_fill_manual(values=colors_effectors) + labs(fill = "Location") +
+  theme(text = element_text(size = 12), legend.position = "null",
+        axis.text = element_text(color = "black"), axis.ticks = element_line(linewidth = 0.5, color = "black"), 
+        axis.text.x = element_text(angle = 30, vjust = 1, hjust=1)) + 
+ scale_y_continuous(labels = scales::comma) 
+p5 + geom_text(stat='count', aes(label=format(after_stat(count), big.mark=",")), vjust=-2, size=3) +
+  geom_text(stat='prop', vjust=-0.25, size=3) 
+
+p6 <- ggplot(strong_matches_sec %>% select(ToxoDB_ID, Motif_type) %>% unique(), 
+             aes(y=fct_infreq(Motif_type), fill=Motif_type)) + geom_bar()+
+  xlab("Protein number") + ylab("Motif category") + 
+  theme_classic() +  
+  scale_fill_manual(values=colors_ELMtypes) +
+  theme(text = element_text(size = 12), legend.position = "null",
+        axis.text = element_text(color = "black"), axis.text.x = element_text(angle = 30, vjust = 1, hjust=1),
+        axis.ticks = element_line(linewidth = 0.5, color = "black")) +
+  scale_y_discrete(labels = c("PTM sites", "Scaffolding", "Subst. recog.","Cleavage","Localization","Degrons"))+ 
+ scale_x_continuous(labels = scales::comma, , limits = c(0,350)) 
+p6 + geom_text(stat='count', aes(label=format(after_stat(count), big.mark=",")), vjust=1, hjust=-0.5, size=3) +
+  geom_text(stat='prop', vjust=-0.5, hjust=-0.5, size=3) 
+
+grid.arrange(p5 + theme(axis.text.x=element_blank(), 
+                        axis.title.x=element_blank(), plot.margin=unit(c(0.5, 0.3, 0.1, 1.6),"cm")),
+             p4,p4, p1 + theme(axis.text.x=element_blank(), 
+                        axis.title.x=element_blank(), plot.margin=unit(c(0.5, 0.3, -0.2, 1.1),"cm")),
+             p4,p4, p3 + theme(legend.position = "null"), 
+             p2 + theme(axis.text.y=element_blank(), 
+                        axis.title.y=element_blank(), plot.margin=unit(c(0.2, 0.4, 0.8, -0.2),"cm")) ,
+             p6 + theme(axis.text.y=element_blank(), 
+                        axis.title.y=element_blank(), plot.margin=unit(c(0.2, 0.1, 1.0, 0.3),"cm")) ,
+             heights=c(1,1,3), widths=c(2,1,1), nrow=3)
+
+#SAVE PDF
+pdf("/Users/jesusav/Documents/Cats/Article/Figures/Figure_2/Figure2b_secreted_extended.pdf", width=6, height=5)
+grid.arrange(p5 + theme(axis.text.x=element_blank(),
+                        axis.title.x=element_blank(), plot.margin=unit(c(0.5, 0.3, 0.1, 1.6),"cm")),
+             p4,p4, p1 + theme(axis.text.x=element_blank(),
+                        axis.title.x=element_blank(), plot.margin=unit(c(0.5, 0.3, -0.2, 1.1),"cm")),
+             p4,p4, p3 + theme(legend.position = "null"),
+             p2 + theme(axis.text.y=element_blank(),
+                        axis.title.y=element_blank(), plot.margin=unit(c(0.2, 0.4, 0.8, -0.2),"cm")) ,
+             p6 + theme(axis.text.y=element_blank(),
+                        axis.title.y=element_blank(), plot.margin=unit(c(0.2, 0, 1.0, 0.5),"cm")) ,
+             heights=c(1,1,3), widths=c(2,1,1), nrow=3)
+dev.off()
+
+# strong_matches %>% filter(secreted=="1") %>% select(ToxoDB_ID, location) %>% unique() %>% count(location)
+# strong_matches %>% filter(secreted==1 & location=="Micronemes" ) %>% select(ToxoDB_ID) %>% unique() #401 
+# strong_matches %>% filter(secreted==1 & location=="Micronemes" & Motif_Name=="LIG_Integrin_RGD_1") #401 
+# strong_matches %>% filter(secreted==1 & location=="Micronemes" & Motif_Name=="LIG_Integrin_isoDGR_2") #401 
+# 
+# strong_matches %>% filter((secreted==1 & location!="Micronemes" & extracellular==0) | (secreted==1 & location=="Micronemes" )) %>% select(ToxoDB_ID) %>% unique() #401 
+# 
+# strong_matches %>% filter(secreted=="1" & Motif_type=="DEG") %>% select(ToxoDB_ID, location) %>% count(location)
+# strong_matches %>% filter(secreted=="1" & Motif_Name=="DEG_SPOP_SBC_1") %>% count(ToxoDB_ID, location) %>% filter(n>=2)%>% count(location)
+# strong_matches %>% filter(ToxoDB_ID=="TGME49_290700" & Motif_Name=="LIG_VCP_VIM_2")
+# 
+# strong_matches_sec %>% filter(Motif_Name=="TRG_Pf-PMV_PEXEL_1") %>% count(location)
+# strong_matches_sec %>%  count(location)
+
+p1 <- ggplot(strong_matches_sec, aes(x=location, fill=location)) + geom_bar()+
+  ylab("Motif\nmatches") + xlab("Subcellular location") + 
+  theme_classic() +  
+  scale_fill_manual(values=colors_effectors) + labs(fill = "Location") +
+  theme(text = element_text(size = 12), legend.position = "null",
+        axis.text = element_text(color = "black"), axis.ticks = element_line(linewidth = 0.5, color = "black"), 
+        axis.text.x = element_text(angle = 30, vjust = 1, hjust=1)) + 
+ scale_y_continuous(labels = scales::comma, breaks = scales::pretty_breaks(n = 3)) 
+
+```
+
+```{r Figure3_Graphic_B}
+char_pie <- strong_matches_sec %>% select(ToxoDB_ID, characterised) %>% unique() %>% count(characterised)
+
+p1 <- ggplot(char_pie, aes(x="", y=n, fill=as.factor(characterised))) +
+  geom_bar(stat="identity", width=1, color="white") +
+  scale_fill_manual(values=colors_BIN) +
+  coord_polar("y", start=0) + theme_void() + theme(legend.position="none")
+p1
+# # #SAVE PDF
+# pdf("Figures/Figure_3/characterised_pie_secreted.pdf", width=4, height=4)
+# p1
+# dev.off()
+
+
+phospho_pie <- strong_matches_sec %>% filter(phosphorylation==1 & secreted=="1") %>% count(modified)
+
+p1 <- ggplot(phospho_pie, aes(x="", y=n, fill=as.factor(modified))) +
+  geom_bar(stat="identity", width=1, color="white") +
+  scale_fill_manual(values=colors_BIN) +
+  coord_polar("y", start=0) + theme_void() + theme(legend.position="none")
+p1
+# # #SAVE PDF
+# pdf("Figures/Figure_3/phospho_pie_secreted.pdf", width=4, height=4)
+# p1
+# dev.off()
+```
+
+
+```{r SuppFigure1_GraphicA}
+disorder_scores <- read_tsv(file = "/Users/jesusav/Documents/Cats/Article/Data/2025/ToxoDB-68_TgondiiME49_AnnotatedProteins_IUPred3.tsv")
+colnames(disorder_scores) <-c('ID', 'mean_disorder', 'var_disorder', 'std_disorder', 'dis_residues', 'dis_res_ratio')
+disorder_scores <- disorder_scores[,1:6]
+
+disorder_scores <- disorder_scores %>% 
+  mutate(ID=gsub(">","",gsub("(\\..*?$)|(-t.*?$)","",gsub(" \\|.*?$","",ID))))
+
+locations <- read_tsv(file = "/Users/jesusav/Documents/Cats/Article/Data/2025/TgME49_LOPIT_MS_evidence.txt")
+locations <- locations %>% select(Gene_ID, Product_Description,Predicted_Location_TAGM_MAP)
+colnames(locations) <- c("ID", "description", "LOPIT_location")
+
+disorder_scores <- left_join(disorder_scores, locations)
+disorder_scores <- disorder_scores %>% mutate(LOPIT_location=case_when(is.na(LOPIT_location) ~ "undefined", TRUE ~ LOPIT_location))
+disorder_scores$LOPIT_location <- as.factor(disorder_scores$LOPIT_location)
+
+disorder_scores <- disorder_scores %>%
+  mutate(location=gsub("_(1|2)","",LOPIT_location)) %>%
+  mutate(location=gsub("_(soluble|membranes)","",location)) %>%
+  mutate(location=gsub("_(chromatin|non_chromatin)","",location)) %>%
+  mutate(location=gsub("_(integral|peripheral)","",location)) %>%
+  mutate(location=gsub("(19S|20S|40S|60S)_","",location)) %>%
+  mutate(location=as.factor(gsub("_"," ",toTitleCase(location))))
+
+mean(disorder_scores$mean_disorder) #0.5
+
+
+colors_locations_3 <- c(rep("grey",3),"#70BF4A",rep("grey",4),"#FED756",
+                        rep("grey",5),"#8DB7E2",rep("grey",3))
+
+p2 <-ggplot(disorder_scores, 
+            aes(y=mean_disorder, x=reorder(location, -mean_disorder),  color=location)) +
+  geom_quasirandom(alpha=0.8) + geom_boxplot(alpha=0.5, color="black", outlier.size = 0.2) +
+  geom_hline(yintercept = 0.4 , size=0.5, color="red") + 
+  xlab("Subcellular location") + ylab("Protein mean IUPred3") + 
+  theme_classic()  +  
+  scale_color_manual(values=colors_locations_3) +
+  theme(text = element_text(size = 15), axis.text = element_text(color = "black"), 
+        legend.position = "none", plot.title = element_blank(), 
+        axis.ticks = element_line(linewidth = 1),
+        axis.text.x = element_text(angle = 30, vjust = 1, hjust=1))
+p2
+
+# # SAVE PDF
+# pdf("/Users/jesusav/Desktop/SuppFig1_LOPIT_IUPred3.pdf", width=10, height=4)
+# p2
+# dev.off()
+
+```
+
+```{r SuppFigure1_Functions}
+## Dataframe filtering and summarising
+df_class_summ <- function(motif_df, m_type, m_count){
+  p_motif_df_mult <- motif_df %>% filter(Motif_type==m_type) 
+  p_motif_df_mult_count <- p_motif_df_mult %>% count(Motif_Name)
+  p_motif_df_mult <- left_join(p_motif_df_mult,p_motif_df_mult_count) %>% rename(Motif_Class=Motif_Name) %>% rename(Motif_Name=n)
+  class_count <- p_motif_df_mult_count %>% filter(n<m_count) %>% nrow() %>% as.character
+  label <- paste(as.character(class_count),"other with" ,as.character(m_count) ,"> matches")
+  p_motif_df_mult <- p_motif_df_mult %>% mutate(Motif_Name=case_when(Motif_Name<m_count ~ label, TRUE ~ Motif_Class))
+  return(p_motif_df_mult)
+}
+
+## Motif strong matches per subcellular location
+p_subcellular <- function(motif_df){
+  motif_df_max <- motif_df %>% filter(location=="Dense granules") %>% count(location) %>% select(n) %>% unlist()
+  p1 <- ggplot(motif_df, aes(x=location, fill=location)) + geom_bar()+
+  ylab("Motif\nmatches") + xlab("Subcellular location") + 
+  theme_classic() +  
+  scale_fill_manual(values=colors_effectors) + labs(fill = "Location") +
+  theme(text = element_text(size = 10), legend.position = "null",
+        axis.text = element_text(color = "black"), axis.ticks = element_line(linewidth = 0.5, color = "black"), 
+        axis.text.x = element_text(angle = 30, vjust = 1, hjust=1)) + 
+ scale_y_continuous(labels = scales::comma, breaks = scales::pretty_breaks(n = 3.5), limits = c(0, motif_df_max + 0.25*motif_df_max)) 
+  p1 <- p1 + geom_text(stat='count', aes(label=format(after_stat(count), big.mark=",")), vjust=-0.3, size=2.5) 
+
+  return(p1)
+}
+
+
+## Motif strong matches per motif category
+p_category <- function(motif_df, cat_color){
+  p2 <- ggplot(motif_df, aes(y=fct_infreq(Motif_Name), fill=Motif_type)) + geom_bar()+
+  xlab("Motif matches") + ylab("Motif category") + 
+  theme_classic() +  
+  scale_fill_manual(values=cat_color ) +
+  theme(text = element_text(size = 12), legend.position = "null",
+        axis.text = element_text(color = "black"), axis.text.y = element_text(size = 5), axis.text.x = element_text(angle = 30, vjust = 1, hjust=1),
+        axis.ticks = element_line(linewidth = 0.5, color = "black")) + 
+ scale_x_continuous(labels = scales::comma, breaks = scales::pretty_breaks(n = 3.5)) 
+  return(p2)
+}
+
+## Motif strong matches per motif category and subcellular location
+p_grid <- function(motif_df, cat_color){
+  matches_grid <- motif_df %>% count(location, Motif_Name) # Motif match matrix
+  
+  order_names <- motif_df %>% count(Motif_Name) %>% arrange(-n) %>% select(Motif_Name) %>% unlist() 
+  matches_grid$Motif_Name <- fct_relevel(matches_grid$Motif_Name, order_names)
+  #matches_grid$Motif_Name <- with(matches_grid,factor(Motif_Name, order_names))
+
+  p3 <- ggplot(matches_grid, aes(location, Motif_Name, fill=n  )) + geom_tile(color = "white", lwd = 0.5) +
+  scale_fill_gradient( labels = scales::label_comma(), low = "white", high = "blue")+
+  labs(fill = "Match number") +
+  theme_minimal() + 
+  theme(text = element_text(size = 9), panel.grid.major = element_blank(), 
+        axis.text = element_text(color = "black"), panel.grid.minor = element_blank(), 
+        axis.ticks = element_blank(), axis.title.y=element_blank(), axis.title.x =  element_blank(),
+        axis.text.x = element_text(size = 10, angle = 30, vjust = 1, hjust=1), plot.title = element_blank(), 
+        legend.key.height= unit(1, 'cm'), legend.key.width= unit(1, 'cm'), 
+        legend.title.position="top",legend.direction="horizontal",
+        legend.title = element_text(size=20, hjust=0, vjust=2), 
+        legend.text = element_text(size=15, angle=30, vjust = 1, hjust=1)) 
+  return(p3)
+}
+```
+
+```{r SuppFigure1_Graphic_B}
+p_motif_df_mult <- df_class_summ(strong_matches_sec, "CLV", 1)
+p1 <- p_subcellular(p_motif_df_mult)
+p2 <- p_category(p_motif_df_mult, colors_ELMtypes[1])
+p3 <- p_grid(p_motif_df_mult)
+p4 <- ggplot() + theme_void()
+
+pdf("/Users/jesusav/Documents/Cats/Article/Figures/SuppFig1/Figure2b_secreted_CLV.pdf", width=3, height=3)
+grid.arrange(p1 + theme(axis.text.x=element_blank(), 
+                        axis.title.x=element_blank(), plot.margin=unit(c(0.5, 0.1, 0, 1.6),"cm")),
+             p4, p3 + theme(legend.position = "null"), 
+             p2 + theme(axis.text.y=element_blank(), 
+                        axis.title.y=element_blank(), plot.margin=unit(c(0.2, 0.1, 0.7, -0.2),"cm")) ,
+             heights=c(1,3.5), widths=c(2,1), nrow=2, top=textGrob("Cleavage", gp = gpar(fontsize = 12), x = 0.8, y = -1.5))
+dev.off()
+
+pdf("/Users/jesusav/Documents/Cats/Article/Figures/SuppFig1/Figure2b_secreted_CLV_legend.pdf", width=4, height=2)
+p3
+dev.off()
+
+p_motif_df_mult <- df_class_summ(strong_matches_sec, "DEG", 5)
+p1 <- p_subcellular(p_motif_df_mult)
+p2 <- p_category(p_motif_df_mult, colors_ELMtypes[2])
+p3 <- p_grid(p_motif_df_mult)
+p4 <- ggplot() + theme_void()
+
+pdf("/Users/jesusav/Documents/Cats/Article/Figures/SuppFig1/Figure2b_secreted_DEG.pdf", width=3.2, height=4)
+grid.arrange(p1 + theme(axis.text.x=element_blank(), 
+                        axis.title.x=element_blank(), plot.margin=unit(c(0.5, 0.1, 0, 1.6),"cm")),
+             p4, p3 + theme(legend.position = "null"), 
+             p2 + theme(axis.text.y=element_blank(), 
+                        axis.title.y=element_blank(), plot.margin=unit(c(0.2, 0.1, 0.6, -0.2),"cm")) ,
+             heights=c(1,5), widths=c(2,1), nrow=2, top=textGrob("Degrons", gp = gpar(fontsize = 12), x = 0.8, y = -1.5))
+dev.off()
+pdf("/Users/jesusav/Documents/Cats/Article/Figures/SuppFig1/Figure2b_secreted_DEG_legend.pdf", width=4, height=2)
+p3
+dev.off()
+
+p_motif_df_mult <- df_class_summ(strong_matches_sec, "DOC", 30)
+p1 <- p_subcellular(p_motif_df_mult)
+p2 <- p_category(p_motif_df_mult, colors_ELMtypes[3])
+p3 <- p_grid(p_motif_df_mult)
+p4 <- ggplot() + theme_void()
+
+pdf("/Users/jesusav/Documents/Cats/Article/Figures/SuppFig1/Figure2b_secreted_DOC.pdf",  width=3.2, height=4)
+grid.arrange(p1 + theme(axis.text.x=element_blank(), 
+                        axis.title.x=element_blank(), plot.margin=unit(c(0.5, 0.1, 0, 1.6),"cm")),
+             p4, p3 + theme(legend.position = "null"), 
+             p2 + theme(axis.text.y=element_blank(), 
+                        axis.title.y=element_blank(), plot.margin=unit(c(0.2, 0.1, 0.5, -0.2),"cm")) ,
+             heights=c(1,5), widths=c(2,1), nrow=2, top=textGrob("Subs. recog.", gp = gpar(fontsize = 12), x = 0.815, y = -1.5))
+dev.off()
+
+pdf("/Users/jesusav/Documents/Cats/Article/Figures/SuppFig1/Figure2b_secreted_DOC_legend.pdf", width=4, height=2)
+p3
+dev.off()
+
+
+p_motif_df_mult <- df_class_summ(strong_matches_sec, "LIG", 50)
+p1 <- p_subcellular(p_motif_df_mult)
+p2 <- p_category(p_motif_df_mult, colors_ELMtypes[4])
+p3 <- p_grid(p_motif_df_mult)
+p4 <- ggplot() + theme_void()
+
+pdf("/Users/jesusav/Documents/Cats/Article/Figures/SuppFig1/Figure2b_secreted_LIG.pdf", width=3.5, height=5.2)
+grid.arrange(p1 + theme(axis.text.x=element_blank(), 
+                        axis.title.x=element_blank(), plot.margin=unit(c(0.5, 0.1, 0, 2.1),"cm")),
+             p4, p3 + theme(legend.position = "null"), 
+             p2 + theme(axis.text.y=element_blank(), 
+                        axis.title.y=element_blank(), plot.margin=unit(c(0.2, 0.1, 0.6, -0.2),"cm")) ,
+             heights=c(1,7), widths=c(2,1), nrow=2, top=textGrob("Scaffolding", gp = gpar(fontsize = 12), x = 0.8, y = -1.5))
+dev.off()
+
+pdf("/Users/jesusav/Documents/Cats/Article/Figures/SuppFig1/Figure2b_secreted_LIG_legend.pdf", width=4, height=2)
+p3
+dev.off()
+
+p_motif_df_mult <- df_class_summ(strong_matches_sec, "MOD", 175)
+p1 <- p_subcellular(p_motif_df_mult)
+p2 <- p_category(p_motif_df_mult, colors_ELMtypes[5])
+p3 <- p_grid(p_motif_df_mult)
+p4 <- ggplot() + theme_void()
+
+pdf("/Users/jesusav/Documents/Cats/Article/Figures/SuppFig1/Figure2b_secreted_MOD.pdf", width=3.2, height=4)
+grid.arrange(p1 + theme(axis.text.x=element_blank(), 
+                        axis.title.x=element_blank(), plot.margin=unit(c(0.5, 0.1, 0, 1.6),"cm")),
+             p4, p3 + theme(legend.position = "null"), 
+             p2 + theme(axis.text.y=element_blank(), 
+                        axis.title.y=element_blank(), plot.margin=unit(c(0.2, 0.1, 0.5, -0.2),"cm")) ,
+             heights=c(1,5), widths=c(2,1), nrow=2, top=textGrob("PTM sites", gp = gpar(fontsize = 12), x = 0.8, y = -1.5))
+dev.off()
+
+pdf("/Users/jesusav/Documents/Cats/Article/Figures/SuppFig1/Figure2b_secreted_MOD_legend.pdf", width=4, height=2)
+p3
+dev.off()
+
+p_motif_df_mult <- df_class_summ(strong_matches_sec, "TRG", 15)
+p1 <- p_subcellular(p_motif_df_mult)
+p2 <- p_category(p_motif_df_mult, colors_ELMtypes[6])
+p3 <- p_grid(p_motif_df_mult)
+p4 <- ggplot() + theme_void()
+
+pdf("/Users/jesusav/Documents/Cats/Article/Figures/SuppFig1/Figure2b_secreted_TRG.pdf", width=3.2, height=4)
+grid.arrange(p1 + theme(axis.text.x=element_blank(), 
+                        axis.title.x=element_blank(), plot.margin=unit(c(0.5, 0.1, 0, 1.6),"cm")),
+             p4, p3 + theme(legend.position = "null"), 
+             p2 + theme(axis.text.y=element_blank(), 
+                        axis.title.y=element_blank(), plot.margin=unit(c(0.2, 0.1, 0.7, -0.2),"cm")) ,
+             heights=c(1,5), widths=c(2,1), nrow=2, top=textGrob("Targetting", gp = gpar(fontsize = 12), x = 0.8, y = -1.5))
+dev.off()
+
+pdf("/Users/jesusav/Documents/Cats/Article/Figures/SuppFig1/Figure2b_secreted_TRG_legend.pdf", width=4, height=2)
+p3
+dev.off()
+```
+
+
+```{r bin}
+rm(p1,p2, p3, p4, p5, p6)
+```
