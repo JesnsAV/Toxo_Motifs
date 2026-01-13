@@ -21,6 +21,13 @@ MM_RawPrediction.py
 
 M_Toxo_joinTables.Rmd
 
+Filtering Data:
+- July2025_MotifMatches_RSA.tsv
+- July2025_MotifMatches_domains.tsv
+- July2025_MotifMatches_pLDDT.tsv
+- July2025_MotifMatches_phosphosites.tsv
+- July2025_MotifMatches_presence.txt
+
 
 ### Motif presence in MSAs
 MM_sites.R
