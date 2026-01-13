@@ -11,8 +11,8 @@ MM_RawPrediction.py
  - IUPred3 library (https://iupred3.elte.hu/)
  
  Inputs:
-- Parasite proteome: header fasta format from ToxoDB
-- ELM classes table: containing motif name, REGEX in parentheses, and motif probability 
+- Parasite proteome: header fasta format from ToxoDB (eg. ToxoDB-68_TgondiiME49_AnnotatedProteins.fasta)
+- ELM classes table: containing motif name, REGEX in parentheses, and motif probability (e.g elm_classes_April25.tsv [in repository])
 
  Outputs:
 - Table of motif predictions with: Protein ID, motif name, match number, motif sequence, motif start, IUPred3 score, disorder context
@@ -21,16 +21,19 @@ MM_RawPrediction.py
 
 M_Toxo_joinTables.Rmd
 
-Raw Data:
-- TgME49_LOPIT_MS_evidence.txt
-- UniProt_29072025_domains.tsv
+Raw Data (for filtering):
+- TgME49_LOPIT_MS_evidence.txt (from ToxoDB)
+- ToxoDB_29072025_Phosphosites_raw.txt (from ToxoDB)
+- UniProt_29072025_domains.tsv (from UniProt)
+- elm_classes_Jun25_taxons.txt (manually curated from ELM [in repository])
+- Toxoplasma gondii PDBs (from AlphaFold DB)
 
-Filtering Data:
+Processed filtering Data:
 - July2025_MotifMatches_RSA.tsv
-- July2025_MotifMatches_domains.tsv
-- July2025_MotifMatches_pLDDT.tsv
+- July2025_MotifMatches_pLDDT.tsv 
 - July2025_MotifMatches_phosphosites.tsv
-- July2025_MotifMatches_presence.txt
+- July2025_MotifMatches_domains.tsv
+- July2025_MotifMatches_presence.txt (check below)
 
 
 ### Motif presence in MSAs
