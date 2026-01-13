@@ -21,6 +21,10 @@ MM_RawPrediction.py
 
 M_Toxo_joinTables.Rmd
 
+Raw Data:
+- TgME49_LOPIT_MS_evidence.txt
+- UniProt_29072025_domains.tsv
+
 Filtering Data:
 - July2025_MotifMatches_RSA.tsv
 - July2025_MotifMatches_domains.tsv
