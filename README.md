@@ -2,7 +2,7 @@
 Code to predict short linear motifs in the Toxoplasma gondii proteome
 
 
-### Initial motif prediction
+### Motif prediction
 MM_RawPrediction.py
 
 `python ../Software/MM_RawPrediction.py 'ALIAS' ../Data/ToxoDB-42_TgondiiME49_AnnotatedProteins.fasta ../Data/elm_classes.tsv 0.4`
