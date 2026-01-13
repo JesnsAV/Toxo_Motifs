@@ -17,6 +17,10 @@ MM_RawPrediction.py
  Outputs:
 - Table of motif predictions with: Protein ID, motif name, match number, motif sequence, motif start, IUPred3 score, disorder context
 
+### Add information to Predictions
+
+M_Toxo_joinTables.Rmd
+
 
 ### Motif presence in MSAs
 MM_sites.R
